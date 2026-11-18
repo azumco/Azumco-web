@@ -7,9 +7,10 @@ function Cover({ project }: { project: Project }) {
     <img
       src={project.image}
       alt={`${project.name} website`}
-      className="absolute inset-0 h-full w-full object-cover object-left-top"
+      className="absolute inset-0 h-full w-full object-cover object-center"
       loading="lazy"
       decoding="async"
+      referrerPolicy="no-referrer"
     />
   );
 }

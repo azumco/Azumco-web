@@ -1,4 +1,7 @@
 // All site copy lives here so it can be edited without touching layout code.
+import risoniqImg from './assets/images/risoniq_showcase_1795008583466.jpg';
+import infranestImg from './assets/images/infranest_showcase_1795008583588.jpg';
+import ebsMediaImg from './assets/images/ebs_media_showcase_1795008584164.jpg';
 
 export const site = {
   name: 'Azumco',
@@ -40,10 +43,10 @@ export const services = [
   {
     id: 'build',
     title: 'Build',
-    summary: 'Websites, web apps and mobile products — fast, secure and made to convert.',
+    summary: 'Custom websites, IT software, web apps and mobile products — fast, secure and built to convert.',
     items: [
-      'Websites & landing pages',
-      'Custom web applications',
+      'Website design & development',
+      'Custom web & IT applications',
       'Mobile apps (iOS & Android)',
       'Workflow automation & integrations',
     ],
@@ -53,10 +56,10 @@ export const services = [
     title: 'Grow',
     summary: 'Put your brand where customers are already looking — and give them a reason to stay.',
     items: [
-      'Search engine optimisation',
+      'Local & technical SEO (Ujjain, MP & India)',
       'Google & Meta ad campaigns',
       'Brand identity & visual systems',
-      'Short-form video & social content',
+      'Video editing, reels & social content',
     ],
   },
   {
@@ -90,7 +93,7 @@ export const projects: Project[] = [
       'A high-end product site showing conversational SaaS flows — dark space aesthetics, vector grids and scroll-linked animation.',
     tags: ['Framer', 'UI/UX Design', 'Copywriting'],
     url: 'https://www.risoniq.ai/',
-    image: '/work/risoniq.jpg',
+    image: risoniqImg,
   },
   {
     name: 'Infra Nest IT Solutions',
@@ -99,7 +102,7 @@ export const projects: Project[] = [
       'A high-fidelity agency portfolio with a canvas-rendered 3D interactive hero. Leads are logged to Google Apps Script through a secured proxy API that keeps sheet targets hidden.',
     tags: ['React', 'Node.js', 'Three.js', 'Tailwind CSS v4', 'Drizzle ORM'],
     url: 'https://infranestit.com/',
-    image: '/work/infranest.jpg',
+    image: infranestImg,
   },
   {
     name: 'EBS Media',
@@ -108,7 +111,7 @@ export const projects: Project[] = [
       'A case-study catalogue for a performance marketing agency — custom layouts, statistics grids and interactive lead intake.',
     tags: ['Framer', 'UI/UX Design', 'Marketing Graphics'],
     url: 'https://ebs-media.framer.website/',
-    image: '/work/ebs-media.jpg',
+    image: ebsMediaImg,
   },
 ];
 
@@ -144,6 +147,10 @@ export const faqs = [
     a: 'Both. We can build your website or app from scratch and then handle the marketing that brings customers to it.',
   },
   {
+    q: 'Do you work with clients in Ujjain, Indore and across Madhya Pradesh?',
+    a: 'Yes. We are based in Ujjain, Madhya Pradesh and work closely with businesses across Indore, Bhopal, MP and India — for websites, IT systems, video editing and digital marketing.',
+  },
+  {
     q: 'How much will it cost?',
     a: 'Every project is different, so we don’t publish prices. Book a short call, tell us what you need and we’ll send a clear, fixed quote.',
   },
@@ -153,7 +160,7 @@ export const faqs = [
   },
   {
     q: 'Can we hire you for just one service?',
-    a: 'Yes. If you only need a logo, a landing page or help with ads, we’ll shape a plan around just that.',
+    a: 'Yes. If you only need a logo, video editing, a landing page or help with ads, we’ll shape a plan around just that.',
   },
   {
     q: 'Who pays for hosting and domains?',
@@ -163,7 +170,8 @@ export const faqs = [
 
 export const serviceOptions = [
   'Website or landing page',
-  'Custom app',
+  'Custom app & IT software',
+  'Video editing & reels',
   'Marketing & SEO',
   'Brand identity',
   'Full digital presence (Build + Grow)',

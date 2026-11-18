@@ -15,6 +15,9 @@ export default function Footer() {
             <p className="mt-5 max-w-xs text-sm leading-relaxed text-fg-2">
               Websites, apps and marketing — built, grown and managed by one team.
             </p>
+            <p className="mt-3 text-xs text-fg-3">
+              Serving Ujjain, Indore, Bhopal &amp; businesses across Madhya Pradesh and India.
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:col-span-7">
