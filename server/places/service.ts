@@ -21,7 +21,7 @@ import { normalizePhone } from '../../shared/phone.ts';
 import { istDate } from '../../shared/time.ts';
 import { notifyUnqueued } from '../notifications.ts';
 import { assertLeadAccess } from '../leads/access.ts';
-import { GOOGLE_SOURCE, readLeads } from '../leads/service.ts';
+import { GOOGLE_SOURCE, activeAssignee, readLeads, timerMs } from '../leads/service.ts';
 import { PlacesHttpError, type PlaceResult, type PlacesClient, type PlacesSku } from './client.ts';
 import { claimPlacesCall, releasePlacesCall } from './budget.ts';
 
@@ -39,6 +39,7 @@ export const placesQuery = (i: { category: string; city: string; state: string }
 export const importSchema = z.object({
   category: z.string().trim().min(1).max(80),
   city: z.string().trim().min(1).max(80),
+  state: z.string().trim().max(80).default(''),
   searchedAt: z.string().datetime(),
   placeIds: z.array(z.string().trim().min(1).max(300)).min(1, 'Select at least one result.').max(20),
   assignTo: z.string().optional(),
@@ -124,10 +125,7 @@ export class PlacesService {
 
   /** Store only the place ID and our own search inputs. No Google call. */
   async import(actor: SessionUser, input: z.infer<typeof importSchema>, defaultWindow: number, ip?: string) {
-    if (input.assignTo) {
-      const u = (await this.db.all('Users')).find((x) => x.id === input.assignTo);
-      if (!u || u.active === 'FALSE') throw new HttpError(400, 'Choose an active team member to assign to.');
-    }
+    if (input.assignTo) await activeAssignee(this.db, input.assignTo);
     const hours = input.windowHours ?? defaultWindow;
 
     return this.db.exclusive(async () => {
@@ -142,6 +140,7 @@ export class PlacesService {
           placeId,
           category: input.category,
           city: input.city,
+          state: input.state,
           searchedAt: input.searchedAt,
           source: GOOGLE_SOURCE,
           dateAdded: istDate(now),
@@ -152,7 +151,7 @@ export class PlacesService {
             ? {
                 assignedTo: input.assignTo,
                 assignedAt: now.toISOString(),
-                expiresAt: new Date(now.getTime() + hours * 3_600_000).toISOString(),
+                expiresAt: new Date(now.getTime() + timerMs(hours)).toISOString(),
                 expiryApplies: 'TRUE',
               }
             : {}),

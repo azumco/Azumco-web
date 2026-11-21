@@ -24,11 +24,12 @@ const backend: SheetsBackend =
   config.SHEETS_BACKEND === 'memory'
     ? new MemoryBackend()
     : new GoogleSheetsBackend(
-        config.GOOGLE_SHEETS_SPREADSHEET_ID!,
+        config.activeSpreadsheetId!,
         parseServiceAccount(config.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64!),
       );
 
 if (config.SHEETS_BACKEND === 'memory') log.warn('Using the in-memory backend: data is lost on restart (development only)');
+if (config.STAGING_MODE === 'true') log.warn('STAGING MODE: using the staging spreadsheet', { assignmentTimerMinutes: config.assignmentOverrideMinutes });
 
 const db = new Db(backend);
 

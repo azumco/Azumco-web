@@ -25,6 +25,7 @@ export interface SessionUser {
   name: string;
   role: Role;
   mustChangePassword: boolean;
+  jobTitle: string;
 }
 
 export interface AuthContext {
@@ -38,6 +39,7 @@ export const toSessionUser = (u: Row): SessionUser => ({
   name: u.name,
   role: u.role as Role,
   mustChangePassword: bool(u.mustChangePassword),
+  jobTitle: u.jobTitle ?? '',
 });
 
 export class Sessions {

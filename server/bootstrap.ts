@@ -9,6 +9,7 @@ import { log } from './lib/log.ts';
 import { DEFAULT_SETTINGS } from './settings.ts';
 import { seed } from './seed.ts';
 import { emailInDomain } from '../shared/email.ts';
+import { profileDefaults, reconcileProfiles } from './users/profile.ts';
 
 export async function bootstrap(config: Config, db: Db): Promise<void> {
   await db.ensureSchema();
@@ -30,6 +31,7 @@ export async function bootstrap(config: Config, db: Db): Promise<void> {
         mustChangePassword: boolCell(true),
         failedAttempts: '0',
         sessionVersion: '0',
+        ...profileDefaults('super_admin', await db.all('Users')),
       },
       'system',
     );
@@ -54,11 +56,15 @@ export async function bootstrap(config: Config, db: Db): Promise<void> {
         mustChangePassword: boolCell(true),
         failedAttempts: '0',
         sessionVersion: '0',
+        ...profileDefaults(member.role, await db.all('Users')),
       },
       'system',
     );
     log.info('bootstrap: team member created', { role: member.role });
   }
+
+  // Profile fields for rows created before they existed (idempotent).
+  await reconcileProfiles(db);
 
   // ── settings defaults ──────────────────────────────────────────────────
   const settings = new Set((await db.all('Settings')).map((s) => s.key));

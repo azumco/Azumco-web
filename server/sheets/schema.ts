@@ -13,6 +13,7 @@ export const TABS = {
   Users: [
     'email', 'name', 'role', 'active', 'passwordHash', 'mustChangePassword',
     'failedAttempts', 'lockedUntil', 'sessionVersion', 'lastLoginAt',
+    'jobTitle', 'canReceiveLeads', 'calendarColor',
   ],
   Sessions: ['tokenHash', 'userId', 'sessionVersion', 'csrfToken', 'expiresAt', 'ip', 'userAgent'],
   Settings: ['key', 'value'],
@@ -23,7 +24,7 @@ export const TABS = {
   // until a person confirms the contact; businessName/phone stay empty until then.
   Leads: [
     'dateAdded', 'addedBy', 'businessName', 'category', 'contactPerson', 'phone', 'city',
-    'websiteOrInstagram', 'source', 'serviceInterest', 'placeId', 'searchedAt', 'phoneSource',
+    'websiteOrInstagram', 'source', 'serviceInterest', 'placeId', 'state', 'searchedAt', 'phoneSource',
     'confirmedAt', 'confirmedBy',
     'assignedTo', 'assignedAt', 'expiresAt', 'expiryApplies', 'timerStoppedAt',
     'contacted', 'firstCallDate', 'callOutcome', 'rating', 'decisionMaker', 'need',

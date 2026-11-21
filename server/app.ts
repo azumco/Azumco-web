@@ -18,6 +18,7 @@ import { workRoutes } from './routes/work.ts';
 import { milestoneRoutes } from './routes/milestone.ts';
 import { maintenanceRoutes } from './routes/maintenance.ts';
 import { PlacesService } from './places/service.ts';
+import { setAssignmentMinutesOverride } from './leads/service.ts';
 import { GooglePlacesClient, type PlacesClient } from './places/client.ts';
 import { log } from './lib/log.ts';
 
@@ -39,6 +40,7 @@ export function createApp({ config, db, ready, staticDir, placesClient }: AppDep
   const sessions = new Sessions(db, config.SESSION_SECRET, config.ALLOWED_EMAIL_DOMAIN);
   const client = placesClient !== undefined ? placesClient : config.GOOGLE_PLACES_API_KEY ? new GooglePlacesClient(config.GOOGLE_PLACES_API_KEY) : null;
   const places = new PlacesService(db, client);
+  setAssignmentMinutesOverride(config.assignmentOverrideMinutes);
 
   app.disable('x-powered-by');
   // Render terminates TLS at one proxy hop; this makes req.ip the client address.

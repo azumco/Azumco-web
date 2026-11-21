@@ -10,7 +10,7 @@ import type { Row } from '../sheets/schema.ts';
 import type { SessionUser } from '../auth/sessions.ts';
 import { HttpError } from '../auth/middleware.ts';
 import { auditUnqueued } from '../audit.ts';
-import { founderIds, notifyUnqueued, type Notice } from '../notifications.ts';
+import { founderIds, notify, notifyUnqueued, type Notice } from '../notifications.ts';
 import { getSettings } from '../settings.ts';
 import { normalizePhone } from '../../shared/phone.ts';
 import { istDate } from '../../shared/time.ts';
@@ -61,6 +61,16 @@ export async function sweepExpiredUnqueued(db: Db, onlyLeadId?: string): Promise
   const founders = await founderIds(db);
   const notices: Notice[] = [];
   for (const l of fresh) {
+    // The person who lost it hears about it too.
+    if (l.assignedTo) {
+      notices.push({
+        id: `expiry:${l.id}:${l.expiresAt}:${l.assignedTo}`,
+        userId: l.assignedTo,
+        type: 'lead_expired',
+        message: `${leadLabel(l).replace(/ · Google lead$/, '')} expired and went back to the founders.`,
+        refId: l.id,
+      });
+    }
     for (const f of founders) {
       notices.push({
         id: `expiry:${l.id}:${l.expiresAt}:${f}`,
@@ -82,6 +92,34 @@ export async function sweepExpiredUnqueued(db: Db, onlyLeadId?: string): Promise
       entityId: l.id,
       before: { assignedTo: l.assignedTo, expiresAt: l.expiresAt },
       after: { assignedTo: '' },
+    })),
+  );
+  return fresh.length;
+}
+
+/**
+ * One "disappears in under 3 hours" notice per assignment, to the assignee.
+ * Idempotent (keyed by lead + deadline); cheap when there is nothing to send.
+ */
+export async function notifyExpiringSoon(db: Db): Promise<number> {
+  const now = db.now().getTime();
+  const soon = (await db.all('Leads')).filter((l) => {
+    if (!timerRunning(l)) return false;
+    const left = Date.parse(l.expiresAt) - now;
+    return left > 0 && left <= 3 * HOUR;
+  });
+  if (!soon.length) return 0;
+  const existing = new Set((await db.all('Notifications')).map((n) => n.id));
+  const fresh = soon.filter((l) => !existing.has(`expiring:${l.id}:${l.expiresAt}`));
+  if (!fresh.length) return 0;
+  await notify(
+    db,
+    fresh.map((l) => ({
+      id: `expiring:${l.id}:${l.expiresAt}`,
+      userId: l.assignedTo,
+      type: 'lead_expiring',
+      message: `${leadLabel(l).replace(/ · Google lead$/, '')} disappears in under 3 hours. Log a call to keep it.`,
+      refId: l.id,
     })),
   );
   return fresh.length;
@@ -143,10 +181,12 @@ export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; r
     expiresAt: running ? l.expiresAt : null,
     timerRunning: running,
     msLeft: running ? Date.parse(l.expiresAt) - ctx.now.getTime() : null,
+    state: l.state ?? '',
     contacted: bool(l.contacted),
     firstCallDate: l.firstCallDate,
     attempts: calls.length,
     lastAttemptAt: calls.reduce((m, c) => (c.at > m ? c.at : m), '') || null,
+    lastNote: [...calls].sort((a, b) => b.at.localeCompare(a.at)).find((c) => c.note)?.note ?? '',
     callOutcome: l.callOutcome,
     rating: l.rating,
     decisionMaker: l.decisionMaker,
@@ -284,17 +324,27 @@ function cleanPhone(raw: string | undefined, leads: Row[], exceptId?: string): s
 
 // ─── Assignment ─────────────────────────────────────────────────────────────
 
-async function activeAssignee(db: Db, id: string): Promise<Row> {
+/** Only active users with "Can receive leads" may be assigned leads (and earn commission). */
+export async function activeAssignee(db: Db, id: string): Promise<Row> {
   const user = (await db.all('Users')).find((u) => u.id === id);
   if (!user || !bool(user.active)) throw new HttpError(400, 'Choose an active team member to assign to.');
+  if (!bool(user.canReceiveLeads)) throw new HttpError(400, `${user.name.split(' ')[0]} is not set up to receive leads.`);
   return user;
 }
+
+let assignmentMinutesOverride: number | null = null;
+/** Staging only (validated in config): shorten assignment timers to minutes. */
+export function setAssignmentMinutesOverride(minutes: number | null) {
+  assignmentMinutesOverride = minutes;
+}
+/** Timer length in ms for an assignment of `hours`, honouring the staging override. */
+export const timerMs = (hours: number) => (assignmentMinutesOverride ? assignmentMinutesOverride * 60_000 : hours * HOUR);
 
 function assignmentPatch(now: Date, assigneeId: string, hours: number | null): Record<string, string> {
   return {
     assignedTo: assigneeId,
     assignedAt: now.toISOString(),
-    expiresAt: hours ? new Date(now.getTime() + hours * HOUR).toISOString() : '',
+    expiresAt: hours ? new Date(now.getTime() + timerMs(hours)).toISOString() : '',
     expiryApplies: boolCell(Boolean(hours)),
     timerStoppedAt: '',
   };
@@ -520,6 +570,18 @@ export async function confirmContact(db: Db, actor: SessionUser, leadId: string,
   });
 }
 
+/**
+ * Pre-save check for Confirm contact: the E.164 form, and the label of any
+ * other lead that already has this number (all stored numbers are first-party).
+ */
+export async function checkPhone(db: Db, actor: SessionUser, leadId: string, raw: string) {
+  const [leads, exp] = await Promise.all([readLeads(db), db.all('Expirations')]);
+  assertLeadAccess(actor, leads.find((l) => l.id === leadId), db.now(), exp);
+  const e164 = normalizePhone(raw);
+  const dup = e164 ? phoneOwner(leads, e164, leadId) : undefined;
+  return { e164, duplicateOf: dup ? leadLabel(dup) : null };
+}
+
 // ─── Commission ─────────────────────────────────────────────────────────────
 
 /** Record the commission currently earned on a lead as paid (founders). */
@@ -537,6 +599,9 @@ export async function markCommissionPaid(db: Db, actor: SessionUser, leadId: str
       { commissionPaid: String(earned), commissionPaidAt: db.now().toISOString() },
       actor.id,
     );
+    if (lead.assignedTo) {
+      await notifyUnqueued(db, [{ userId: lead.assignedTo, type: 'commission_paid', message: `Commission paid: ₹${(earned - num(before.commissionPaid)).toLocaleString('en-IN')} for ${leadLabel(lead)}.`, refId: leadId }], actor.id);
+    }
     await auditUnqueued(db, [{
       actorId: actor.id,
       action: 'commission.paid',

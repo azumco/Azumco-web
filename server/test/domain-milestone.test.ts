@@ -105,15 +105,25 @@ describe('AC1 — sign-in is limited to the domain', () => {
 });
 
 describe('AC2/AC3 — no self-registration; no off-domain account changes', () => {
-  it('has no registration route, and user creation is not exposed at all', async () => {
+  it('has no registration route; only the super admin creates users, on the domain only', async () => {
     h = await startHarness();
     const owner = await superAdmin(h);
+    const admin = (await memberClient(h, owner, ADMIN_EMAIL)).client;
     const anon = new Client(h.url);
-    for (const path of ['/api/auth/register', '/api/auth/signup', '/api/register', '/api/signup', '/api/users']) {
+    for (const path of ['/api/auth/register', '/api/auth/signup', '/api/register', '/api/signup']) {
       expect((await anon.req('POST', path, { email: 'new@azumco.com', password: 'whatever-123' })).status).toBeGreaterThanOrEqual(401);
       expect((await owner.req('POST', path, { email: 'new@azumco.com', name: 'X', role: 'admin' })).status).toBe(404);
     }
-    expect((await h.db.all('Users')).length).toBe(3);
+    const body = { name: 'New Person', email: 'new.person@azumco.com', role: 'employee' };
+    expect((await anon.req('POST', '/api/users', body)).status).toBe(401);
+    expect((await admin.req('POST', '/api/users', body)).status).toBe(403);
+    const before = JSON.stringify(await h.backend.readTabs(['Users']));
+    for (const email of ['new@gmail.com', 'new@azumco.com.evil.com', 'new@mail.azumco.com']) {
+      expect((await owner.req('POST', '/api/users', { ...body, email })).status).toBe(400);
+    }
+    expect(JSON.stringify(await h.backend.readTabs(['Users']))).toBe(before);
+    expect((await owner.req('POST', '/api/users', body)).status).toBe(201);
+    expect((await owner.req('POST', '/api/users', body)).status).toBe(409);
   });
 
   it('rejects an email edit (any domain) and writes nothing', async () => {

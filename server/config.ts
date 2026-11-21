@@ -48,12 +48,32 @@ const envSchema = z
 
     /** Optional; the Places finder disables itself when absent (Phase 3). */
     GOOGLE_PLACES_API_KEY: z.string().trim().optional(),
-    /** Bearer token for the scheduled-maintenance endpoint (Phase 3). */
+    /** Bearer token for the scheduled-maintenance endpoint. */
     CRON_TOKEN: z.string().min(32).optional(),
+
+    /**
+     * Staging runs only: use STAGING_SPREADSHEET_ID instead of the production
+     * sheet, and optionally shorten assignment timers to minutes. Refused on
+     * Render (RENDER is set there) and when the two ids are the same, so it can
+     * never be switched on in production.
+     */
+    STAGING_MODE: z.enum(['true', 'false']).default('false'),
+    STAGING_SPREADSHEET_ID: z.string().trim().optional(),
+    STAGING_ASSIGNMENT_MINUTES: z.coerce.number().int().min(1).max(180).optional(),
+    /** Set by Render on every service. Used only to refuse staging mode there. */
+    RENDER: z.string().optional(),
   })
   .superRefine((env, ctx) => {
     if (!emailInDomain(env.SUPERADMIN_EMAIL, env.ALLOWED_EMAIL_DOMAIN)) {
       ctx.addIssue({ code: 'custom', path: ['SUPERADMIN_EMAIL'], message: `must be an address on ${env.ALLOWED_EMAIL_DOMAIN}` });
+    }
+    if (env.STAGING_MODE === 'true') {
+      if (env.RENDER) ctx.addIssue({ code: 'custom', path: ['STAGING_MODE'], message: 'staging mode cannot be used on Render' });
+      if (!env.STAGING_SPREADSHEET_ID) ctx.addIssue({ code: 'custom', path: ['STAGING_SPREADSHEET_ID'], message: 'required in staging mode' });
+      else if (env.STAGING_SPREADSHEET_ID === env.GOOGLE_SHEETS_SPREADSHEET_ID)
+        ctx.addIssue({ code: 'custom', path: ['STAGING_SPREADSHEET_ID'], message: 'must differ from GOOGLE_SHEETS_SPREADSHEET_ID' });
+    } else if (env.STAGING_ASSIGNMENT_MINUTES !== undefined) {
+      ctx.addIssue({ code: 'custom', path: ['STAGING_ASSIGNMENT_MINUTES'], message: 'only allowed with STAGING_MODE=true' });
     }
     if (env.SHEETS_BACKEND === 'memory' && env.NODE_ENV === 'production') {
       ctx.addIssue({ code: 'custom', path: ['SHEETS_BACKEND'], message: 'memory backend is not allowed in production' });
@@ -66,7 +86,14 @@ const envSchema = z
     }
   });
 
-export type Config = z.infer<typeof envSchema> & { teamUsers: TeamUserSeed[]; isProduction: boolean };
+export type Config = z.infer<typeof envSchema> & {
+  teamUsers: TeamUserSeed[];
+  isProduction: boolean;
+  /** The spreadsheet this process reads and writes. */
+  activeSpreadsheetId: string | undefined;
+  /** Assignment timer override in minutes — staging only, else null. */
+  assignmentOverrideMinutes: number | null;
+};
 
 /**
  * Parse and validate the environment. Throws with a list of problems — names
@@ -104,5 +131,12 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     throw new Error('Invalid environment configuration:\n  - TEAM_USERS: each email must be unique and differ from SUPERADMIN_EMAIL');
   }
 
-  return { ...parsed.data, teamUsers: team.data, isProduction: parsed.data.NODE_ENV === 'production' };
+  const staging = parsed.data.STAGING_MODE === 'true';
+  return {
+    ...parsed.data,
+    teamUsers: team.data,
+    isProduction: parsed.data.NODE_ENV === 'production',
+    activeSpreadsheetId: staging ? parsed.data.STAGING_SPREADSHEET_ID : parsed.data.GOOGLE_SHEETS_SPREADSHEET_ID,
+    assignmentOverrideMinutes: staging ? (parsed.data.STAGING_ASSIGNMENT_MINUTES ?? null) : null,
+  };
 }

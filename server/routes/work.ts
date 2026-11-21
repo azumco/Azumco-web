@@ -10,7 +10,7 @@ import { HttpError, authOf, requireRole } from '../auth/middleware.ts';
 import { istDate } from '../../shared/time.ts';
 import { getSettings, settingsPatchSchema, updateSettings } from '../settings.ts';
 import {
-  assignLeads, callSchema, confirmContact, confirmSchema, createLead, createLeadSchema, deleteLead, leadView, logCall,
+  assignLeads, callSchema, checkPhone, notifyExpiringSoon, confirmContact, confirmSchema, createLead, createLeadSchema, deleteLead, leadView, logCall,
   markCommissionPaid, unassignLeads, updateLead, viewContext, visibleLeads,
 } from '../leads/service.ts';
 import { assertLeadAccess } from '../leads/access.ts';
@@ -48,6 +48,7 @@ export function workRoutes(db: Db, places: PlacesService) {
 
   // ── Leads ────────────────────────────────────────────────────────────────
   r.get('/leads', async (_req, res) => {
+    if (me(res).role === 'employee') await notifyExpiringSoon(db).catch(() => 0);
     const [rows, ctx] = await Promise.all([visibleLeads(db, me(res)), viewContext(db)]);
     res.json({ leads: rows.map((l) => leadView(l, ctx)), serverNow: ctx.now.toISOString() });
   });
@@ -119,6 +120,11 @@ export function workRoutes(db: Db, places: PlacesService) {
     res.json({ lead: leadView(lead, await viewContext(db)) });
   });
 
+  r.post('/leads/:id/phone-check', async (req, res) => {
+    const { phone } = parse(z.object({ phone: z.string().max(40) }), req.body);
+    res.json(await checkPhone(db, me(res), param(req, 'id'), phone));
+  });
+
   r.post('/leads/:id/commission-paid', FOUNDERS, async (req, res) => {
     await markCommissionPaid(db, me(res), param(req, 'id'), req.ip);
     res.json({ ok: true });
@@ -174,7 +180,7 @@ export function workRoutes(db: Db, places: PlacesService) {
     const founders = users.filter((u) => (u.role === 'admin' || u.role === 'super_admin') && u.active !== 'FALSE');
     res.json({
       slots: await bookings.slots(q.from ?? istDate(db.now()), q.days, q.founderId),
-      founders: founders.map((u) => ({ id: u.id, name: u.name })),
+      founders: founders.map((u) => ({ id: u.id, name: u.name, calendarColor: u.calendarColor || 'neutral' })),
     });
   });
 
@@ -247,16 +253,42 @@ export function workRoutes(db: Db, places: PlacesService) {
   // ── Team list (for assign / paid-by pickers) ─────────────────────────────
   r.get('/team', FOUNDERS, async (_req, res) => {
     const users = await db.all('Users');
-    res.json({ users: users.filter((u) => u.active !== 'FALSE').map((u) => ({ id: u.id, name: u.name, role: u.role })) });
+    res.json({
+      users: users
+        .filter((u) => u.active !== 'FALSE')
+        .map((u) => ({ id: u.id, name: u.name, role: u.role, jobTitle: u.jobTitle ?? '', canReceiveLeads: u.canReceiveLeads === 'TRUE', calendarColor: u.calendarColor || 'neutral' })),
+    });
   });
 
   // ── Notifications (own only) ─────────────────────────────────────────────
   r.get('/notifications', async (_req, res) => {
-    const mine = (await db.all('Notifications')).filter((n) => n.userId === me(res).id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const user = me(res);
+    const [all, bookingRows] = await Promise.all([db.all('Notifications'), db.all('Bookings')]);
+    const mine = all.filter((n) => n.userId === user.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const founder = user.role === 'admin' || user.role === 'super_admin';
+    // Where tapping the item goes: the related lead, or the booking's lead.
+    const linkOf = (n: Record<string, string>) => {
+      if (n.type.startsWith('booking')) {
+        const b = bookingRows.find((x) => x.id === n.refId);
+        if (founder) return '/team/calendar';
+        return b ? `/team/leads/${b.leadId}` : '/team/book';
+      }
+      if (n.type === 'leads_assigned' && !n.refId) return founder ? '/team/leads' : '/team';
+      if (n.type === 'assignment_expired') return '/team/leads?view=unclaimed';
+      if (n.type === 'lead_expired') return '/team';
+      return n.refId ? `/team/leads/${n.refId}` : founder ? '/team' : '/team';
+    };
     res.json({
       unread: mine.filter((n) => !n.readAt).length,
-      notifications: mine.slice(0, 50).map((n) => ({ id: n.id, type: n.type, message: n.message, refId: n.refId, at: n.createdAt, read: Boolean(n.readAt) })),
+      notifications: mine.slice(0, 50).map((n) => ({ id: n.id, type: n.type, message: n.message, refId: n.refId, at: n.createdAt, read: Boolean(n.readAt), link: linkOf(n) })),
     });
+  });
+  r.post('/notifications/:id/read', async (req, res) => {
+    const user = me(res);
+    const n = (await db.all('Notifications')).find((x) => x.id === param(req, 'id') && x.userId === user.id);
+    if (!n) throw new HttpError(404, 'Not found.');
+    if (!n.readAt) await db.update('Notifications', n.id, { readAt: db.now().toISOString() }, user.id);
+    res.json({ ok: true });
   });
   r.post('/notifications/read-all', async (_req, res) => {
     const user = me(res);

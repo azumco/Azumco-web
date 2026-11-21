@@ -52,6 +52,11 @@ export const bookingSchema = z.object({
 
 export const rescheduleSchema = z.object({ date: day, start: hhmm });
 
+const to12 = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
+
 export type Slot = {
   founderId: string;
   date: string;
@@ -214,12 +219,20 @@ export class BookingService {
       }
 
       await this.db.updateUnqueued('Leads', input.leadId, { discoveryCallDate: slot.date }, actor.id);
-      await notifyUnqueued(this.db, [{
-        userId: slot.founderId,
-        type: 'booking_created',
-        message: `Discovery call booked: ${leadLabel(lead)} on ${formatDate(slot.date)} at ${slot.start} IST (${input.mode}).`,
-        refId: mine.id,
-      }], actor.id);
+      const users = await this.db.all('Users');
+      const first = (id: string) => (users.find((u) => u.id === id)?.name ?? '').split(' ')[0];
+      const time = to12(slot.start);
+      await notifyUnqueued(this.db, [
+        {
+          userId: slot.founderId,
+          type: 'booking_created',
+          message: `Discovery call booked: ${leadLabel(lead)} on ${formatDate(slot.date)} at ${time} (${input.mode}) by ${first(actor.id)}.`,
+          refId: mine.id,
+        },
+        ...(actor.id !== slot.founderId
+          ? [{ userId: actor.id, type: 'booking_confirmed', message: `Booked: ${leadLabel(lead).replace(/ · Google lead$/, '')} · ${formatDate(slot.date).slice(0, 6)}, ${time} with ${first(slot.founderId)}.`, refId: mine.id }]
+          : []),
+      ], actor.id);
       return mine;
     });
   }

@@ -24,7 +24,8 @@ function countBy(rows: Row[], key: (r: Row) => string) {
 
 /** Commission credited to each employee: earned / paid / pending. */
 function commissionByAssignee(leads: Row[], users: Row[], rates: Parameters<typeof commissionFor>[1]) {
-  const employees = users.filter((u) => u.role === 'employee');
+  // Commission applies only to people who can receive leads.
+  const employees = users.filter((u) => bool(u.canReceiveLeads));
   return employees.map((u) => {
     const mine = leads.filter((l) => l.assignedTo === u.id);
     const earned = mine.reduce((s, l) => s + commissionFor(commissionInput(l), rates), 0);
@@ -129,12 +130,13 @@ export async function employeeDashboard(db: Db, user: SessionUser) {
   const lines = mine
     .map((l) => {
       const input = commissionInput(l);
-      const parts: { kind: 'qualified' | 'won'; label: string; detail: string; amount: number }[] = [];
-      if (input.callHappened) parts.push({ kind: 'qualified', label: 'Qualified lead', detail: `${leadLabel(l)} · call happened`, amount: ctx.rates.qualifiedFee });
+      const parts: { kind: 'qualified' | 'won'; label: string; detail: string; amount: number; date: string }[] = [];
+      const date = l.updatedAt.slice(0, 10);
+      if (input.callHappened) parts.push({ kind: 'qualified', label: 'Qualified lead', detail: `${leadLabel(l)} · discovery call happened`, amount: ctx.rates.qualifiedFee, date });
       const total = commissionFor(input, ctx.rates);
       if (total > (input.callHappened ? ctx.rates.qualifiedFee : 0)) {
         const pct = input.dealType === 'Monthly' ? ctx.rates.monthlyPct : ctx.rates.oneTimePct;
-        parts.push({ kind: 'won', label: 'Client won', detail: `${leadLabel(l)} · ${pct}% of ₹${input.dealValue.toLocaleString('en-IN')}`, amount: total - (input.callHappened ? ctx.rates.qualifiedFee : 0) });
+        parts.push({ kind: 'won', label: 'Client won', detail: `${leadLabel(l)} · ${pct}% of ₹${input.dealValue.toLocaleString('en-IN')}`, amount: total - (input.callHappened ? ctx.rates.qualifiedFee : 0), date });
       }
       return parts;
     })
@@ -142,6 +144,7 @@ export async function employeeDashboard(db: Db, user: SessionUser) {
 
   return {
     lines,
+    rates: ctx.rates,
     stats: {
       contacted: mine.filter((l) => bool(l.contacted)).length,
       calls: ctx.calls.filter((c) => c.userId === user.id).length,

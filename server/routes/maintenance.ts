@@ -14,7 +14,7 @@ import type { Config } from '../config.ts';
 import type { Db } from '../sheets/db.ts';
 import { HttpError } from '../auth/middleware.ts';
 import { safeEqual } from '../auth/sessions.ts';
-import { sweepExpired } from '../leads/service.ts';
+import { notifyExpiringSoon, sweepExpired } from '../leads/service.ts';
 import { log } from '../lib/log.ts';
 
 export function maintenanceRoutes(config: Config, db: Db, ready: Promise<void>) {
@@ -26,8 +26,9 @@ export function maintenanceRoutes(config: Config, db: Db, ready: Promise<void>) 
     if (!safeEqual(token, config.CRON_TOKEN)) throw new HttpError(401, 'Unauthorized.');
     await ready;
     const expired = await sweepExpired(db);
-    log.info('maintenance run', { expired });
-    res.json({ ok: true, expired, at: db.now().toISOString() });
+    const expiring = await notifyExpiringSoon(db);
+    log.info('maintenance run', { expired, expiring });
+    res.json({ ok: true, expired, expiring, at: db.now().toISOString() });
   };
   r.post('/run', run);
   r.get('/run', run);

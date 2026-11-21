@@ -12,6 +12,7 @@ import { HttpError, authOf, requireRole } from '../auth/middleware.ts';
 import { releaseLeadsOf } from '../leads/service.ts';
 import { emailInDomain } from '../../shared/email.ts';
 import { MIN_PASSWORD_LENGTH } from '../auth/passwords.ts';
+import { profileDefaults } from '../users/profile.ts';
 
 export const publicUser = (u: Row) => ({
   id: u.id,
@@ -23,6 +24,9 @@ export const publicUser = (u: Row) => ({
   mustChangePassword: bool(u.mustChangePassword),
   lockedUntil: u.lockedUntil || null,
   lastLoginAt: u.lastLoginAt || null,
+  jobTitle: u.jobTitle ?? '',
+  canReceiveLeads: bool(u.canReceiveLeads),
+  calendarColor: u.calendarColor || 'neutral',
   updatedAt: u.updatedAt,
 });
 
@@ -31,12 +35,25 @@ const patchSchema = z
     // super_admin is not assignable: there is exactly one, seeded from env.
     role: z.enum(['admin', 'employee']).optional(),
     active: z.boolean().optional(),
+    jobTitle: z.string().trim().max(80).optional(),
+    canReceiveLeads: z.boolean().optional(),
     expectedUpdatedAt: z.string().optional(),
   })
   // Strict: an "email" (or any other) field is rejected, not silently ignored.
   // There is deliberately no way to change an address through the API.
   .strict()
-  .refine((b) => b.role !== undefined || b.active !== undefined, 'Nothing to change.');
+  .refine((b) => b.role !== undefined || b.active !== undefined || b.jobTitle !== undefined || b.canReceiveLeads !== undefined, 'Nothing to change.');
+
+/** New teammate: super admin only, company domain only, no password until one is issued. */
+const createSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Enter a name.').max(100),
+    email: z.string().trim().toLowerCase().email('Enter a valid email.'),
+    role: z.enum(['admin', 'employee']),
+    jobTitle: z.string().trim().max(80).default(''),
+    canReceiveLeads: z.boolean().optional(),
+  })
+  .strict();
 
 export function usersRoutes(db: Db, allowedDomain: string) {
   const router = Router();
@@ -44,6 +61,38 @@ export function usersRoutes(db: Db, allowedDomain: string) {
 
   router.get('/', async (_req, res) => {
     res.json({ users: (await db.all('Users')).map(publicUser) });
+  });
+
+  router.post('/', async (req, res) => {
+    const actor = authOf(res).user;
+    const parsed = createSchema.safeParse(req.body);
+    if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? 'Invalid request.');
+    const input = parsed.data;
+    if (!emailInDomain(input.email, allowedDomain)) throw new HttpError(400, `Only @${allowedDomain} addresses can have accounts.`);
+    const created = await db.exclusive(async () => {
+      const [state] = await db.loadFresh(['Users']);
+      if (state.rows.some((u) => u.email.toLowerCase() === input.email)) throw new HttpError(409, 'Someone with that email already has an account.');
+      const defaults = profileDefaults(input.role, state.rows);
+      return db.insertUnqueued(
+        'Users',
+        {
+          email: input.email,
+          name: input.name,
+          role: input.role,
+          active: boolCell(true),
+          passwordHash: '',
+          mustChangePassword: boolCell(true),
+          failedAttempts: '0',
+          sessionVersion: '0',
+          ...defaults,
+          jobTitle: input.jobTitle,
+          ...(input.canReceiveLeads !== undefined ? { canReceiveLeads: boolCell(input.canReceiveLeads) } : {}),
+        },
+        actor.id,
+      );
+    });
+    await audit(db, { actorId: actor.id, action: 'users.create', entity: 'Users', entityId: created.id, after: publicUser(created), ip: req.ip });
+    res.status(201).json({ user: publicUser(created) });
   });
 
   const loadOther = async (actorId: string, id: string) => {
@@ -89,9 +138,13 @@ export function usersRoutes(db: Db, allowedDomain: string) {
     const actor = authOf(res).user;
     const parsed = patchSchema.safeParse(req.body);
     if (!parsed.success) throw new HttpError(400, parsed.error.issues[0]?.message ?? 'Invalid request.');
-    const user = await loadOther(actor.id, req.params.id);
+    // The super admin may edit their own job title / lead setting, nothing else.
+    const selfProfileOnly = req.params.id === actor.id && parsed.data.role === undefined && parsed.data.active === undefined;
+    const user = selfProfileOnly ? (await db.find('Users', actor.id))! : await loadOther(actor.id, req.params.id);
 
     const patch: Record<string, string> = {};
+    if (parsed.data.jobTitle !== undefined) patch.jobTitle = parsed.data.jobTitle;
+    if (parsed.data.canReceiveLeads !== undefined) patch.canReceiveLeads = boolCell(parsed.data.canReceiveLeads);
     if (parsed.data.role) patch.role = parsed.data.role;
     if (parsed.data.active !== undefined) {
       patch.active = boolCell(parsed.data.active);
@@ -107,8 +160,8 @@ export function usersRoutes(db: Db, allowedDomain: string) {
       action: 'users.update',
       entity: 'Users',
       entityId: user.id,
-      before: { role: before.role, active: before.active },
-      after: { role: after.role, active: after.active, leadsReleased: released },
+      before: { role: before.role, active: before.active, jobTitle: before.jobTitle, canReceiveLeads: before.canReceiveLeads },
+      after: { role: after.role, active: after.active, jobTitle: after.jobTitle, canReceiveLeads: after.canReceiveLeads, leadsReleased: released },
       ip: req.ip,
     });
     res.json({ user: publicUser(after), leadsReleased: released });

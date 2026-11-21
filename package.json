@@ -18,7 +18,8 @@
     "test:live": "tsx --env-file=.env server/test/live.ts",
     "scan:secrets": "tsx --env-file-if-exists=.env server/test/scan-secrets.ts",
     "prod:data": "tsx --env-file-if-exists=.env server/scripts/prod-data.ts",
-    "dev:demo": "tsx server/dev/demo.ts"
+    "dev:demo": "tsx server/dev/demo.ts",
+    "env:check": "tsx --env-file-if-exists=.env server/scripts/env-check.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
