@@ -159,13 +159,21 @@ export class Db {
   // forfeits the serialization guarantee.
 
   async insertUnqueued(tab: TabName, data: Record<string, string>, actorId: string): Promise<Row> {
+    return (await this.insertManyUnqueued(tab, [data], actorId))[0];
+  }
+
+  /** Insert several rows with one read and one append. */
+  async insertManyUnqueued(tab: TabName, items: Record<string, string>[], actorId: string): Promise<Row[]> {
     const [state] = await this.loadFresh([tab]);
+    if (!items.length) return [];
     const stamp = this.now().toISOString();
-    const row = { ...data, id: data.id || randomUUID(), createdAt: stamp, updatedAt: stamp, updatedBy: actorId } as Row;
-    await this.backend.appendRows(tab, [toCells(state.header, row)]);
-    state.rows = [...state.rows, row];
-    state.rowNumbers.set(row.id, state.rows.length + 1);
-    return row;
+    const rows = items.map(
+      (data) => ({ ...data, id: data.id || randomUUID(), createdAt: stamp, updatedAt: stamp, updatedBy: actorId }) as Row,
+    );
+    await this.backend.appendRows(tab, rows.map((r) => toCells(state.header, r)));
+    // Row numbers are not tracked for appended rows; the next write re-reads anyway.
+    state.rows = [...state.rows, ...rows];
+    return rows;
   }
 
   async updateUnqueued(
@@ -175,27 +183,45 @@ export class Db {
     actorId: string,
     expectedUpdatedAt?: string,
   ): Promise<{ before: Row; after: Row }> {
+    return (await this.updateManyUnqueued(tab, [{ id, patch, expectedUpdatedAt }], actorId))[0];
+  }
+
+  /** Update several rows of one tab with one read and one batched write. All-or-nothing on conflicts. */
+  async updateManyUnqueued(
+    tab: TabName,
+    changes: { id: string; patch: Record<string, string>; expectedUpdatedAt?: string }[],
+    actorId: string,
+  ): Promise<{ before: Row; after: Row }[]> {
     const [state] = await this.loadFresh([tab]);
-    const index = state.rows.findIndex((r) => r.id === id);
-    if (index < 0) throw new NotFoundError();
-    const before = state.rows[index];
-    if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) throw new ConflictError();
+    const now = this.now().toISOString();
+    const results: { before: Row; after: Row; rowNumber: number }[] = [];
 
-    // The system columns are not patchable: id is the identity, the stamps are ours.
-    const { id: _i, createdAt: _c, updatedAt: _u, updatedBy: _b, ...safe } = patch;
-    void _i; void _c; void _u; void _b;
-    let stamp = this.now().toISOString();
-    // Two edits in the same millisecond would leave updatedAt unchanged and
-    // defeat the concurrency check; nudge forward so every write changes it.
-    if (stamp <= before.updatedAt) stamp = new Date(Date.parse(before.updatedAt) + 1).toISOString();
-    const after = { ...before, ...safe, updatedAt: stamp, updatedBy: actorId } as Row;
+    for (const { id, patch, expectedUpdatedAt } of changes) {
+      const before = state.rows.find((r) => r.id === id);
+      if (!before) throw new NotFoundError();
+      if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) throw new ConflictError();
 
-    const rowNumber = state.rowNumbers.get(id)!;
-    await this.backend.writeRanges([
-      { range: `${a1Tab(tab)}!A${rowNumber}:${columnLetter(state.header.length)}${rowNumber}`, values: [toCells(state.header, after)] },
-    ]);
-    state.rows = state.rows.map((r, i) => (i === index ? after : r));
-    return { before, after };
+      // The system columns are not patchable: id is the identity, the stamps are ours.
+      const { id: _i, createdAt: _c, updatedAt: _u, updatedBy: _b, ...safe } = patch;
+      void _i; void _c; void _u; void _b;
+      // Two edits in the same millisecond would leave updatedAt unchanged and
+      // defeat the concurrency check; nudge forward so every write changes it.
+      const stamp = now > before.updatedAt ? now : new Date(Date.parse(before.updatedAt) + 1).toISOString();
+      const after = { ...before, ...safe, updatedAt: stamp, updatedBy: actorId } as Row;
+      results.push({ before, after, rowNumber: state.rowNumbers.get(id)! });
+    }
+    if (!results.length) return [];
+
+    const last = columnLetter(state.header.length);
+    await this.backend.writeRanges(
+      results.map((r) => ({
+        range: `${a1Tab(tab)}!A${r.rowNumber}:${last}${r.rowNumber}`,
+        values: [toCells(state.header, r.after)],
+      })),
+    );
+    const byId = new Map(results.map((r) => [r.after.id, r.after]));
+    state.rows = state.rows.map((r) => byId.get(r.id) ?? r);
+    return results.map(({ before, after }) => ({ before, after }));
   }
 
   async removeUnqueued(tab: TabName, id: string, _actorId: string, expectedUpdatedAt?: string): Promise<Row> {

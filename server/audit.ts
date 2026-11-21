@@ -17,6 +17,8 @@ function clean(value: unknown): string {
 }
 
 export interface AuditEntry {
+  /** Optional stable id, for entries that must be recorded exactly once. */
+  id?: string;
   actorId: string;
   action: string;
   entity?: string;
@@ -26,23 +28,34 @@ export interface AuditEntry {
   ip?: string;
 }
 
-export async function audit(db: Db, e: AuditEntry): Promise<void> {
+function toRow(db: Db, e: AuditEntry): Record<string, string> {
+  return {
+    ...(e.id ? { id: e.id } : {}),
+    at: db.now().toISOString(),
+    actorId: e.actorId,
+    action: e.action,
+    entity: e.entity ?? '',
+    entityId: e.entityId ?? '',
+    before: clean(e.before),
+    after: clean(e.after),
+    ip: e.ip ?? '',
+  };
+}
+
+/** Use INSIDE db.exclusive(). Skips entries whose id already exists. */
+export async function auditUnqueued(db: Db, entries: AuditEntry[]): Promise<void> {
+  if (!entries.length) return;
   try {
-    await db.insert(
-      'Audit',
-      {
-        at: db.now().toISOString(),
-        actorId: e.actorId,
-        action: e.action,
-        entity: e.entity ?? '',
-        entityId: e.entityId ?? '',
-        before: clean(e.before),
-        after: clean(e.after),
-        ip: e.ip ?? '',
-      },
-      e.actorId || 'system',
-    );
+    const withIds = entries.filter((e) => e.id);
+    let skip = new Set<string>();
+    if (withIds.length) skip = new Set((await db.loadFresh(['Audit']))[0].rows.map((r) => r.id));
+    const rows = entries.filter((e) => !e.id || !skip.has(e.id)).map((e) => toRow(db, e));
+    await db.insertManyUnqueued('Audit', rows, entries[0].actorId || 'system');
   } catch (err) {
-    log.error('audit write failed', { action: e.action, error: (err as Error).message });
+    log.error('audit write failed', { action: entries[0].action, error: (err as Error).message });
   }
+}
+
+export async function audit(db: Db, e: AuditEntry): Promise<void> {
+  await db.exclusive(() => auditUnqueued(db, [e]));
 }

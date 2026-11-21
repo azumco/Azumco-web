@@ -19,17 +19,26 @@ export const TABS = {
   Audit: ['at', 'actorId', 'action', 'entity', 'entityId', 'before', 'after', 'ip'],
   Meta: ['key', 'value'],
 
-  // Phase 2+
+  // Leads. Google-sourced leads hold ONLY placeId + category + city + searchedAt
+  // until a person confirms the contact; businessName/phone stay empty until then.
   Leads: [
     'dateAdded', 'addedBy', 'businessName', 'category', 'contactPerson', 'phone', 'city',
-    'websiteOrInstagram', 'source', 'serviceInterest', 'placeId', 'phoneSource', 'phoneFetchedAt',
-    'assignedTo', 'contacted', 'firstCallDate', 'callOutcome', 'rating', 'decisionMaker', 'need',
+    'websiteOrInstagram', 'source', 'serviceInterest', 'placeId', 'searchedAt', 'phoneSource',
+    'confirmedAt', 'confirmedBy',
+    'assignedTo', 'assignedAt', 'expiresAt', 'expiryApplies', 'timerStoppedAt',
+    'contacted', 'firstCallDate', 'callOutcome', 'rating', 'decisionMaker', 'need',
     'nextStep', 'followUpDate', 'discoveryCallDate', 'callHappened', 'status', 'dealType',
     'dealValue', 'clientPaid', 'commissionPaid', 'commissionPaidAt', 'notes',
   ],
   CallLog: ['leadId', 'at', 'userId', 'outcome', 'note'],
-  PlacesUsage: ['yearMonth', 'sku', 'count'],
-  PlacesClaims: ['yearMonth', 'sku', 'status', 'actorId', 'note'],
+  /** One row per expired assignment. The row id is `${leadId}:${expiresAt}`, which makes the sweep idempotent. */
+  Expirations: ['leadId', 'assigneeId', 'assignedAt', 'expiresAt'],
+  /**
+   * Ledger of paid Google Places calls: one row per claimed call. The monthly
+   * count is the number of 'claimed' rows for the IST month; an unbilled
+   * rejection flips its row to 'released'. Holds no Places content.
+   */
+  PlacesClaims: ['yearMonth', 'sku', 'status', 'actorId'],
   Availability: ['founderId', 'date', 'start', 'end', 'slotMinutes', 'repeatWeekly', 'repeatUntil'],
   Bookings: [
     'leadId', 'founderId', 'date', 'start', 'end', 'status', 'clientName', 'phone', 'mode', 'link',
