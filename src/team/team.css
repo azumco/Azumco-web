@@ -37,3 +37,16 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/*
+  Scrollbars are hidden in the team area. Scrolling still works with the
+  mouse wheel, trackpad, touch and keyboard; only the bar is invisible.
+*/
+html,
+body,
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}

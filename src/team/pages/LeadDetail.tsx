@@ -319,7 +319,9 @@ function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; found
 
 // ─── Panel (shared by the page and the laptop side panel) ─────────────────
 
-export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user: TeamUser; embedded?: boolean; onChanged?: () => void }) {
+export function LeadPanel({ id, user, embedded, fullWidth, onChanged }: { id: string; user: TeamUser; embedded?: boolean; fullWidth?: boolean; onChanged?: () => void }) {
+  // Two-column layout whenever there is room (side panel or the full lead page).
+  const wide = embedded || fullWidth;
   const state = useApi<Detail>(`/leads/${id}`);
   const now = useServerNow(state.data?.serverNow, 10_000);
   const founder = isFounder(user);
@@ -352,9 +354,9 @@ export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user:
               {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
             </div>
 
-            {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} wide={embedded} /> : <StoredContact lead={lead} />}
+            {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} wide={wide} /> : <StoredContact lead={lead} />}
 
-            <LogCall lead={lead} msLeft={lead.timerRunning ? msLeft : null} onLogged={reload} wide={embedded} numbered={!founder} />
+            <LogCall lead={lead} msLeft={lead.timerRunning ? msLeft : null} onLogged={reload} wide={wide} numbered={!founder} />
 
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" onClick={() => navigate(`/team/book?lead=${lead.id}`)}><CalendarPlus className="h-4 w-4" /> Book discovery call</Button>
@@ -421,8 +423,10 @@ export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user:
 
 export default function LeadDetail({ id, user }: { id: string; user: TeamUser }) {
   return (
-    <div className="mx-auto max-w-2xl">
-      <LeadPanel id={id} user={user} />
+    // Full width of the content area (no inner scroll); the form goes to two
+    // columns when the page is wide enough, like the laptop side panel.
+    <div className="@container">
+      <LeadPanel id={id} user={user} fullWidth />
     </div>
   );
 }
