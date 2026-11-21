@@ -14,7 +14,8 @@
     "build:all": "npm run build && npm run build:server",
     "start": "node dist-server/index.js",
     "typecheck:server": "tsc -p tsconfig.server.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:live": "tsx --env-file=.env server/test/live.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

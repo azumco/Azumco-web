@@ -23,6 +23,8 @@ export interface SheetsBackend {
   appendRows(title: string, rows: Grid): Promise<void>;
   /** Delete one row; `rowNumber` is 1-based, as in the Sheets UI. */
   deleteRow(sheetId: number, rowNumber: number): Promise<void>;
+  /** Delete whole tabs. Used only by the integration test to clean up its __test_ tabs. */
+  deleteTabs(sheetIds: number[]): Promise<void>;
 }
 
 /** Column number (1-based) to letters: 1 → A, 27 → AA. */
@@ -86,6 +88,10 @@ export class MemoryBackend implements SheetsBackend {
     const tab = [...this.tabs.values()].find((t) => t.sheetId === sheetId);
     if (!tab) throw new Error(`No tab ${sheetId}`);
     tab.grid.splice(rowNumber - 1, 1);
+  }
+
+  async deleteTabs(sheetIds: number[]): Promise<void> {
+    for (const [title, t] of this.tabs) if (sheetIds.includes(t.sheetId)) this.tabs.delete(title);
   }
 
   private require(title: string) {

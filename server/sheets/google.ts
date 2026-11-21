@@ -167,4 +167,9 @@ export class GoogleSheetsBackend implements SheetsBackend {
       ],
     });
   }
+
+  async deleteTabs(sheetIds: number[]): Promise<void> {
+    if (!sheetIds.length) return;
+    await this.call('POST', ':batchUpdate', { requests: sheetIds.map((sheetId) => ({ deleteSheet: { sheetId } })) });
+  }
 }

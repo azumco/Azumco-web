@@ -44,6 +44,8 @@ interface TabState {
 export interface DbOptions {
   cacheTtlMs?: number;
   now?: () => Date;
+  /** Prefix for every tab name in the spreadsheet (integration tests use "__test_"). */
+  tabPrefix?: string;
 }
 
 export class Db {
@@ -51,6 +53,7 @@ export class Db {
   private sheetIds = new Map<string, number>();
   private queue: Promise<unknown> = Promise.resolve();
   private readonly ttl: number;
+  private readonly prefix: string;
   readonly now: () => Date;
 
   constructor(
@@ -59,6 +62,12 @@ export class Db {
   ) {
     this.ttl = opts.cacheTtlMs ?? 30_000;
     this.now = opts.now ?? (() => new Date());
+    this.prefix = opts.tabPrefix ?? '';
+  }
+
+  /** The tab's title in the spreadsheet. */
+  private t(tab: TabName): string {
+    return this.prefix + tab;
   }
 
   // ─── Setup ──────────────────────────────────────────────────────────────
@@ -68,11 +77,11 @@ export class Db {
     await this.exclusive(async () => {
       const names = Object.keys(TABS) as TabName[];
       const existing = new Set((await this.backend.listTabs()).map((t) => t.title));
-      const missing = names.filter((n) => !existing.has(n));
+      const missing = names.filter((n) => !existing.has(this.t(n))).map((n) => this.t(n));
       await this.backend.addTabs(missing);
       for (const t of await this.backend.listTabs()) this.sheetIds.set(t.title, t.sheetId);
 
-      const grids = await this.backend.readTabs(names);
+      const grids = await this.backend.readTabs(names.map((n) => this.t(n)));
       const headerWrites: { range: string; values: Grid }[] = [];
       names.forEach((name, i) => {
         const header = grids[i][0] ?? [];
@@ -80,7 +89,7 @@ export class Db {
         const add = wanted.filter((c) => !header.includes(c));
         if (add.length) {
           headerWrites.push({
-            range: `${a1Tab(name)}!${columnLetter(header.length + 1)}1`,
+            range: `${a1Tab(this.t(name))}!${columnLetter(header.length + 1)}1`,
             values: [add],
           });
         }
@@ -117,7 +126,7 @@ export class Db {
 
   /** Read tabs straight from Sheets, refreshing the cache. Batched into one request. */
   async loadFresh(tabs: TabName[]): Promise<TabState[]> {
-    const grids = await this.backend.readTabs(tabs);
+    const grids = await this.backend.readTabs(tabs.map((tab) => this.t(tab)));
     return tabs.map((tab, i) => {
       const state = parseGrid(grids[i], this.now().getTime());
       this.cache.set(tab, state);
@@ -170,7 +179,7 @@ export class Db {
     const rows = items.map(
       (data) => ({ ...data, id: data.id || randomUUID(), createdAt: stamp, updatedAt: stamp, updatedBy: actorId }) as Row,
     );
-    await this.backend.appendRows(tab, rows.map((r) => toCells(state.header, r)));
+    await this.backend.appendRows(this.t(tab), rows.map((r) => toCells(state.header, r)));
     // Row numbers are not tracked for appended rows; the next write re-reads anyway.
     state.rows = [...state.rows, ...rows];
     return rows;
@@ -215,7 +224,7 @@ export class Db {
     const last = columnLetter(state.header.length);
     await this.backend.writeRanges(
       results.map((r) => ({
-        range: `${a1Tab(tab)}!A${r.rowNumber}:${last}${r.rowNumber}`,
+        range: `${a1Tab(this.t(tab))}!A${r.rowNumber}:${last}${r.rowNumber}`,
         values: [toCells(state.header, r.after)],
       })),
     );
@@ -237,10 +246,10 @@ export class Db {
   }
 
   private async sheetIdOf(tab: TabName): Promise<number> {
-    if (!this.sheetIds.has(tab)) {
+    if (!this.sheetIds.has(this.t(tab))) {
       for (const t of await this.backend.listTabs()) this.sheetIds.set(t.title, t.sheetId);
     }
-    const id = this.sheetIds.get(tab);
+    const id = this.sheetIds.get(this.t(tab));
     if (id === undefined) throw new Error(`Tab ${tab} does not exist`);
     return id;
   }
