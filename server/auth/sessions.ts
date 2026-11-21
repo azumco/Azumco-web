@@ -14,6 +14,7 @@ import type { Db } from '../sheets/db.ts';
 import { bool, num } from '../sheets/db.ts';
 import type { Row } from '../sheets/schema.ts';
 import type { Role } from '../config.ts';
+import { emailInDomain } from '../../shared/email.ts';
 
 export const SESSION_COOKIE = 'azumco_sid';
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -43,6 +44,8 @@ export class Sessions {
   constructor(
     private readonly db: Db,
     private readonly secret: string,
+    /** Sessions of users outside this domain are refused on every request. */
+    private readonly allowedDomain: string,
   ) {}
 
   private hash(token: string): string {
@@ -81,7 +84,7 @@ export class Sessions {
     if (Date.parse(session.expiresAt) <= this.db.now().getTime()) return null;
 
     const user = await this.db.find('Users', session.userId);
-    if (!user || !bool(user.active)) return null;
+    if (!user || !bool(user.active) || !emailInDomain(user.email, this.allowedDomain)) return null;
     if (num(user.sessionVersion) !== num(session.sessionVersion)) return null;
 
     return { user: toSessionUser(user), session };

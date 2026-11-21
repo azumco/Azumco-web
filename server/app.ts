@@ -15,6 +15,7 @@ import { Sessions } from './auth/sessions.ts';
 import { authRoutes } from './routes/auth.ts';
 import { usersRoutes } from './routes/users.ts';
 import { workRoutes } from './routes/work.ts';
+import { milestoneRoutes } from './routes/milestone.ts';
 import { maintenanceRoutes } from './routes/maintenance.ts';
 import { PlacesService } from './places/service.ts';
 import { GooglePlacesClient, type PlacesClient } from './places/client.ts';
@@ -35,7 +36,7 @@ const READY_TIMEOUT_MS = 40_000;
 
 export function createApp({ config, db, ready, staticDir, placesClient }: AppDeps) {
   const app = express();
-  const sessions = new Sessions(db, config.SESSION_SECRET);
+  const sessions = new Sessions(db, config.SESSION_SECRET, config.ALLOWED_EMAIL_DOMAIN);
   const client = placesClient !== undefined ? placesClient : config.GOOGLE_PLACES_API_KEY ? new GooglePlacesClient(config.GOOGLE_PLACES_API_KEY) : null;
   const places = new PlacesService(db, client);
 
@@ -85,8 +86,9 @@ export function createApp({ config, db, ready, staticDir, placesClient }: AppDep
   });
 
   api.use('/auth', authRoutes(config, db, sessions));
-  api.use('/users', requireAuth(sessions), usersRoutes(db));
+  api.use('/users', requireAuth(sessions), usersRoutes(db, config.ALLOWED_EMAIL_DOMAIN));
   api.use(requireAuth(sessions), workRoutes(db, places));
+  api.use(requireAuth(sessions), milestoneRoutes(db));
 
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found.')));
   api.use(errorHandler(config));

@@ -43,12 +43,12 @@ async function main() {
     NODE_ENV: 'test',
     SHEETS_BACKEND: 'memory', // config validation only; the backend is passed explicitly below
     SESSION_SECRET: 'live-test-'.repeat(5),
-    SUPERADMIN_EMAIL: 'owner@example.test',
+    SUPERADMIN_EMAIL: 'test.owner@azumco.com',
     SUPERADMIN_NAME: 'Test Owner',
     SUPERADMIN_INITIAL_PASSWORD: 'live-test-Passw0rd',
     TEAM_USERS: JSON.stringify([
-      { name: 'Ayan Test', email: 'a@example.test', role: 'admin' },
-      { name: 'Staff Test', email: 's@example.test', role: 'employee' },
+      { name: 'Ayan Test', email: 'test.ayan@azumco.com', role: 'admin' },
+      { name: 'Staff Test', email: 'test.staff@azumco.com', role: 'employee' },
     ]),
   });
 

@@ -10,6 +10,8 @@ import { audit } from '../audit.ts';
 import { generateTempPassword, hashPassword } from '../auth/passwords.ts';
 import { HttpError, authOf, requireRole } from '../auth/middleware.ts';
 import { releaseLeadsOf } from '../leads/service.ts';
+import { emailInDomain } from '../../shared/email.ts';
+import { MIN_PASSWORD_LENGTH } from '../auth/passwords.ts';
 
 export const publicUser = (u: Row) => ({
   id: u.id,
@@ -31,9 +33,12 @@ const patchSchema = z
     active: z.boolean().optional(),
     expectedUpdatedAt: z.string().optional(),
   })
+  // Strict: an "email" (or any other) field is rejected, not silently ignored.
+  // There is deliberately no way to change an address through the API.
+  .strict()
   .refine((b) => b.role !== undefined || b.active !== undefined, 'Nothing to change.');
 
-export function usersRoutes(db: Db) {
+export function usersRoutes(db: Db, allowedDomain: string) {
   const router = Router();
   router.use(requireRole('super_admin'));
 
@@ -46,6 +51,9 @@ export function usersRoutes(db: Db) {
     if (!user) throw new HttpError(404, 'User not found.');
     if (user.id === actorId) throw new HttpError(400, 'Use your own account settings for this.');
     if (user.role === 'super_admin') throw new HttpError(400, 'The super admin account cannot be changed here.');
+    if (!emailInDomain(user.email, allowedDomain)) {
+      throw new HttpError(400, `This account is not on ${allowedDomain} and cannot be managed or signed in to.`);
+    }
     return user;
   };
 
@@ -57,7 +65,10 @@ export function usersRoutes(db: Db) {
   router.post('/:id/temp-password', async (req, res) => {
     const actor = authOf(res).user;
     const user = await loadOther(actor.id, req.params.id);
-    const tempPassword = generateTempPassword();
+    // The super admin may type a temporary password, or leave it blank to generate one.
+    const typed = z.object({ tempPassword: z.string().min(MIN_PASSWORD_LENGTH).max(200).optional() }).safeParse(req.body ?? {});
+    if (!typed.success) throw new HttpError(400, `A temporary password needs at least ${MIN_PASSWORD_LENGTH} characters.`);
+    const tempPassword = typed.data.tempPassword || generateTempPassword();
     await db.update(
       'Users',
       user.id,

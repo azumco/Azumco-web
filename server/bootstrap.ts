@@ -8,6 +8,7 @@ import { hashPassword } from './auth/passwords.ts';
 import { log } from './lib/log.ts';
 import { DEFAULT_SETTINGS } from './settings.ts';
 import { seed } from './seed.ts';
+import { emailInDomain } from '../shared/email.ts';
 
 export async function bootstrap(config: Config, db: Db): Promise<void> {
   await db.ensureSchema();
@@ -64,6 +65,15 @@ export async function bootstrap(config: Config, db: Db): Promise<void> {
   const missing = Object.entries(DEFAULT_SETTINGS).filter(([key]) => !settings.has(key));
   if (missing.length) {
     await db.exclusive(() => db.insertManyUnqueued('Settings', missing.map(([key, value]) => ({ key, value })), 'system'));
+  }
+
+  // Any session belonging to an account outside the allowed domain is removed
+  // (they are also refused on every request). Logged by count only.
+  const outsiders = new Set((await db.all('Users')).filter((u) => !emailInDomain(u.email, config.ALLOWED_EMAIL_DOMAIN)).map((u) => u.id));
+  if (outsiders.size) {
+    const stale = (await db.all('Sessions')).filter((s) => outsiders.has(s.userId));
+    for (const s of stale) await db.remove('Sessions', s.id, 'system').catch(() => undefined);
+    log.warn('bootstrap: accounts outside the allowed domain cannot sign in', { accounts: outsiders.size, sessionsRemoved: stale.length });
   }
 
   await seed(db);

@@ -3,11 +3,12 @@ import { z } from 'zod';
 import type { Config } from '../config.ts';
 import type { Db } from '../sheets/db.ts';
 import { bool, boolCell, num } from '../sheets/db.ts';
-import { audit } from '../audit.ts';
+import { audit, auditUnqueued } from '../audit.ts';
 import { RateLimiter } from '../auth/rate-limit.ts';
 import { hashPassword, passwordProblem, verifyPassword } from '../auth/passwords.ts';
 import { HttpError, authOf, readCookie, requireAuth } from '../auth/middleware.ts';
 import { SESSION_COOKIE, SESSION_TTL_MS, toSessionUser, type Sessions } from '../auth/sessions.ts';
+import { emailInDomain } from '../../shared/email.ts';
 
 /** Consecutive failures before an account is locked, and for how long. */
 export const MAX_FAILED_ATTEMPTS = 5;
@@ -54,7 +55,11 @@ export function authRoutes(config: Config, db: Db, sessions: Sessions) {
     if (!parsed.success) throw new HttpError(401, LOGIN_FAILED);
     const { email, password } = parsed.data;
 
-    const user = (await db.all('Users')).find((u) => u.email.toLowerCase() === email);
+    // An address outside the company domain is treated exactly like an unknown
+    // email: same bcrypt work, same status, same message.
+    const user = emailInDomain(email, config.ALLOWED_EMAIL_DOMAIN)
+      ? (await db.all('Users')).find((u) => u.email.toLowerCase() === email)
+      : undefined;
     // Always run bcrypt, even with no user, so timing is uniform.
     const passwordOk = await verifyPassword(password, user?.passwordHash);
 
@@ -65,24 +70,40 @@ export function authRoutes(config: Config, db: Db, sessions: Sessions) {
     if (!bool(user.active) || locked) throw new HttpError(401, LOGIN_FAILED);
 
     if (!passwordOk) {
-      const failed = num(user.failedAttempts) + 1;
-      const lock = failed >= MAX_FAILED_ATTEMPTS;
-      await db.update(
-        'Users',
-        user.id,
-        { failedAttempts: String(lock ? 0 : failed), lockedUntil: lock ? new Date(now + LOCKOUT_MS).toISOString() : '' },
-        'system',
-      );
-      await audit(db, { actorId: user.id, action: lock ? 'auth.lockout' : 'auth.login_failed', entity: 'Users', entityId: user.id, ip });
+      // Recorded in the background so this response takes the same time as an
+      // unknown or out-of-domain email (bcrypt only, no Sheets round trip).
+      // The increment reads the row fresh inside the write queue, so rapid
+      // attempts still count correctly.
+      void db
+        .exclusive(async () => {
+          const [state] = await db.loadFresh(['Users']);
+          const row = state.rows.find((u) => u.id === user.id);
+          if (!row) return;
+          const failed = num(row.failedAttempts) + 1;
+          const lock = failed >= MAX_FAILED_ATTEMPTS;
+          await db.updateUnqueued(
+            'Users',
+            user.id,
+            { failedAttempts: String(lock ? 0 : failed), lockedUntil: lock ? new Date(db.now().getTime() + LOCKOUT_MS).toISOString() : row.lockedUntil },
+            'system',
+          );
+          await auditUnqueued(db, [{ actorId: user.id, action: lock ? 'auth.lockout' : 'auth.login_failed', entity: 'Users', entityId: user.id, ip }]);
+        })
+        .catch(() => undefined);
       throw new HttpError(401, LOGIN_FAILED);
     }
 
-    const { after } = await db.update(
-      'Users',
-      user.id,
-      { failedAttempts: '0', lockedUntil: '', lastLoginAt: new Date(now).toISOString() },
-      user.id,
-    );
+    // Success is decided inside the write queue against a fresh read, so a
+    // lockout recorded by a failure just before cannot be skipped.
+    const after = await db.exclusive(async () => {
+      const [state] = await db.loadFresh(['Users']);
+      const row = state.rows.find((u) => u.id === user.id);
+      if (!row || !bool(row.active) || (row.lockedUntil && Date.parse(row.lockedUntil) > db.now().getTime())) return null;
+      return (
+        await db.updateUnqueued('Users', user.id, { failedAttempts: '0', lockedUntil: '', lastLoginAt: new Date(now).toISOString() }, user.id)
+      ).after;
+    });
+    if (!after) throw new HttpError(401, LOGIN_FAILED);
     const { token, csrfToken } = await sessions.create(after, ip, req.get('user-agent') ?? '');
     await sessions.prune(user.id, num(after.sessionVersion));
     await audit(db, { actorId: user.id, action: 'auth.login', entity: 'Users', entityId: user.id, ip });

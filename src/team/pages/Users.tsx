@@ -36,6 +36,7 @@ export default function Users({ me, embedded }: { me: TeamUser; embedded?: boole
   const [users, setUsers] = useState<ManagedUser[] | null>(null);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [customPw, setCustomPw] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState('');
   const [issued, setIssued] = useState<{ name: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -64,7 +65,10 @@ export default function Users({ me, embedded }: { me: TeamUser; embedded?: boole
 
   const issueTemp = (u: ManagedUser) =>
     run(u.id, async () => {
-      const { tempPassword } = await api<{ tempPassword: string }>('POST', `/users/${u.id}/temp-password`);
+      // Blank = generate one. A typed value must be 10+ characters.
+      const typed = (customPw[u.id] ?? '').trim();
+      const { tempPassword } = await api<{ tempPassword: string }>('POST', `/users/${u.id}/temp-password`, typed ? { tempPassword: typed } : {});
+      setCustomPw((m) => ({ ...m, [u.id]: '' }));
       setCopied(false);
       setIssued({ name: u.name, password: tempPassword });
     });
@@ -146,6 +150,15 @@ export default function Users({ me, embedded }: { me: TeamUser; embedded?: boole
                       <option value="admin">Admin</option>
                       <option value="employee">Employee</option>
                     </select>
+                    <input
+                      type="text"
+                      autoComplete="off"
+                      aria-label={`Temporary password for ${u.name} (leave blank to generate)`}
+                      placeholder="Type one, or leave blank"
+                      value={customPw[u.id] ?? ''}
+                      onChange={(e) => setCustomPw((m) => ({ ...m, [u.id]: e.target.value }))}
+                      className="min-h-11 w-48 rounded-full border border-line-2 bg-bg px-4 text-sm text-fg placeholder:text-fg-3 outline-none focus:border-brand"
+                    />
                     <Button variant="ghost" size="sm" busy={busy === u.id} onClick={() => issueTemp(u)}>
                       <KeyRound className="h-4 w-4" />
                       {u.hasPassword ? 'Reset password' : 'Create password'}

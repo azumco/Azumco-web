@@ -28,9 +28,9 @@ export interface HarnessOptions {
 }
 
 // Fake fixture values only — no real people or customers.
-export const SUPER = { email: 'owner@example.test', password: 'initial-Passw0rd!' };
-export const ADMIN_EMAIL = 'admin@example.test';
-export const EMPLOYEE_EMAIL = 'staff@example.test';
+export const SUPER = { email: 'test.owner@azumco.com', password: 'initial-Passw0rd!' };
+export const ADMIN_EMAIL = 'test.admin@azumco.com';
+export const EMPLOYEE_EMAIL = 'test.staff@azumco.com';
 
 export function testConfig(overrides: Record<string, string> = {}): Config {
   return loadConfig({

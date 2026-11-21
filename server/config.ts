@@ -5,6 +5,7 @@
 // variables, and this project defines none.
 
 import { z } from 'zod';
+import { emailInDomain } from '../shared/email.ts';
 
 const ROLES = ['super_admin', 'admin', 'employee'] as const;
 export type Role = (typeof ROLES)[number];
@@ -31,6 +32,13 @@ const envSchema = z
     SHEETS_BACKEND: z.enum(['google', 'memory']).default('google'),
 
     SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
+    /** Only addresses on exactly this domain may have accounts or sign in. */
+    ALLOWED_EMAIL_DOMAIN: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/, 'must be a bare domain like azumco.com')
+      .default('azumco.com'),
     SUPERADMIN_EMAIL: z.string().trim().toLowerCase().email(),
     SUPERADMIN_NAME: z.string().trim().min(1).default('Super Admin'),
     /** Used only to create the super_admin the first time; ignored afterwards. */
@@ -44,6 +52,9 @@ const envSchema = z
     CRON_TOKEN: z.string().min(32).optional(),
   })
   .superRefine((env, ctx) => {
+    if (!emailInDomain(env.SUPERADMIN_EMAIL, env.ALLOWED_EMAIL_DOMAIN)) {
+      ctx.addIssue({ code: 'custom', path: ['SUPERADMIN_EMAIL'], message: `must be an address on ${env.ALLOWED_EMAIL_DOMAIN}` });
+    }
     if (env.SHEETS_BACKEND === 'memory' && env.NODE_ENV === 'production') {
       ctx.addIssue({ code: 'custom', path: ['SHEETS_BACKEND'], message: 'memory backend is not allowed in production' });
     }
@@ -77,6 +88,20 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
   const team = z.array(teamUserSchema).safeParse(rawTeam);
   if (!team.success) {
     throw new Error('Invalid environment configuration:\n  - TEAM_USERS: expected [{ name, email, role: "admin"|"employee" }]');
+  }
+
+  // Name entries by position only — never print an address.
+  const outside = team.data
+    .map((u, i) => (emailInDomain(u.email, parsed.data.ALLOWED_EMAIL_DOMAIN) ? 0 : i + 1))
+    .filter((i) => i > 0);
+  if (outside.length) {
+    throw new Error(
+      `Invalid environment configuration:\n  - TEAM_USERS: entr${outside.length === 1 ? 'y' : 'ies'} ${outside.join(', ')} must use an address on ${parsed.data.ALLOWED_EMAIL_DOMAIN}`,
+    );
+  }
+  const emails = team.data.map((u) => u.email);
+  if (new Set(emails).size !== emails.length || emails.includes(parsed.data.SUPERADMIN_EMAIL)) {
+    throw new Error('Invalid environment configuration:\n  - TEAM_USERS: each email must be unique and differ from SUPERADMIN_EMAIL');
   }
 
   return { ...parsed.data, teamUsers: team.data, isProduction: parsed.data.NODE_ENV === 'production' };
