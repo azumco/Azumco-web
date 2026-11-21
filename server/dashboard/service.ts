@@ -8,7 +8,8 @@ import type { SessionUser } from '../auth/sessions.ts';
 import { commissionFor } from '../../shared/rules.ts';
 import { istDate } from '../../shared/time.ts';
 import { placesUsage } from '../places/budget.ts';
-import { commissionInput, followUpState, readLeads, viewContext } from '../leads/service.ts';
+import { commissionInput, followUpState, leadLabel, readLeads, viewContext } from '../leads/service.ts';
+import { addDays } from '../../shared/slots.ts';
 import { effectiveAssignee } from '../leads/access.ts';
 import { MilestoneService } from '../milestone/service.ts';
 
@@ -28,7 +29,16 @@ function commissionByAssignee(leads: Row[], users: Row[], rates: Parameters<type
     const mine = leads.filter((l) => l.assignedTo === u.id);
     const earned = mine.reduce((s, l) => s + commissionFor(commissionInput(l), rates), 0);
     const paid = mine.reduce((s, l) => s + Math.min(num(l.commissionPaid), commissionFor(commissionInput(l), rates)), 0);
-    return { userId: u.id, name: u.name, earned, paid, pending: Math.max(0, earned - paid) };
+    return {
+      userId: u.id,
+      name: u.name,
+      earned,
+      paid,
+      pending: Math.max(0, earned - paid),
+      contacted: mine.filter((l) => bool(l.contacted)).length,
+      qualified: mine.filter((l) => bool(l.callHappened)).length,
+      won: mine.filter((l) => l.status === 'Won').length,
+    };
   });
 }
 
@@ -55,7 +65,33 @@ export async function founderDashboard(db: Db) {
   const expiredByAssignee: Record<string, number> = {};
   for (const e of expirations) expiredByAssignee[nameOf(e.assigneeId)] = (expiredByAssignee[nameOf(e.assigneeId)] ?? 0) + 1;
 
+  const label = (id: string) => leadLabel(leads.find((l) => l.id === id) ?? ({ businessName: 'Deleted lead' } as unknown as Row));
+  const dueToday = leads.filter((l) => followUpState(l, today) === 'today');
+  const weekEnd = addDays(today, 7);
+  const upcoming = bookings
+    .filter((b) => b.status === 'booked' && b.date >= today && b.date < weekEnd)
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))
+    .map((b) => ({ id: b.id, date: b.date, start: b.start, mode: b.mode, founder: nameOf(b.founderId), lead: label(b.leadId), leadId: b.leadId }));
+  const bucket = (l: Row) => {
+    const st = l.status || 'New';
+    return st === 'Proposal Sent' || st === 'Negotiating' ? 'Proposal' : st;
+  };
+  const pipeline = Object.fromEntries(['New', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost'].map((k) => [k, leads.filter((l) => bucket(l) === k).length]));
+  const unclaimed = leads.filter((l) => !effectiveAssignee(l, ctx.now));
+
   return {
+    needs: {
+      followUpsToday: dueToday.length,
+      firstFollowUpLeadId: dueToday[0]?.id ?? null,
+      overdue: leads.filter((l) => followUpState(l, today) === 'overdue').length,
+      unclaimed: unclaimed.length,
+      callsThisWeek: upcoming.length,
+      nextCallDate: upcoming[0]?.date ?? null,
+    },
+    pipeline,
+    upcoming,
+    callsBookedThisWeek: upcoming.length,
+    lastWon: label(leads.filter((l) => l.status === 'Won').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id ?? ''),
     totals: totals(leads, bookings),
     followUps: {
       overdue: leads.filter((l) => followUpState(l, today) === 'overdue').length,
@@ -89,8 +125,25 @@ export async function employeeDashboard(db: Db, user: SessionUser) {
   const myBookings = bookings.filter((b) => b.bookedBy === user.id && b.status !== 'cancelled');
   const commission = commissionByAssignee(mine, ctx.users.filter((u) => u.id === user.id), ctx.rates)[0] ?? { earned: 0, paid: 0, pending: 0 };
 
+  // "How it adds up": one line per lead that earns something.
+  const lines = mine
+    .map((l) => {
+      const input = commissionInput(l);
+      const parts: { kind: 'qualified' | 'won'; label: string; detail: string; amount: number }[] = [];
+      if (input.callHappened) parts.push({ kind: 'qualified', label: 'Qualified lead', detail: `${leadLabel(l)} · call happened`, amount: ctx.rates.qualifiedFee });
+      const total = commissionFor(input, ctx.rates);
+      if (total > (input.callHappened ? ctx.rates.qualifiedFee : 0)) {
+        const pct = input.dealType === 'Monthly' ? ctx.rates.monthlyPct : ctx.rates.oneTimePct;
+        parts.push({ kind: 'won', label: 'Client won', detail: `${leadLabel(l)} · ${pct}% of ₹${input.dealValue.toLocaleString('en-IN')}`, amount: total - (input.callHappened ? ctx.rates.qualifiedFee : 0) });
+      }
+      return parts;
+    })
+    .flat();
+
   return {
+    lines,
     stats: {
+      contacted: mine.filter((l) => bool(l.contacted)).length,
       calls: ctx.calls.filter((c) => c.userId === user.id).length,
       booked: myBookings.length,
       qualified: mine.filter((l) => bool(l.callHappened)).length,

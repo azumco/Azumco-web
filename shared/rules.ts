@@ -11,27 +11,43 @@ export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export const RATINGS = ['Good', 'Intermediate', 'Bad'] as const;
 export const DEAL_TYPES = ['One-time', 'Monthly'] as const;
 
-/** Call outcomes. `reached` marks those where a person was actually spoken to. */
+/** Call outcomes (Log a call screen). `reached` = a person was actually spoken to. */
 export const CALL_OUTCOMES = [
   { value: 'No answer', reached: false },
-  { value: 'Busy', reached: false },
-  { value: 'Switched off', reached: false },
-  { value: 'Wrong number', reached: false },
-  { value: 'Call back later', reached: true },
+  { value: 'Busy · call later', reached: true },
   { value: 'Interested', reached: true },
+  { value: 'Call booked', reached: true },
   { value: 'Not interested', reached: true },
-  { value: 'Meeting booked', reached: true },
+  { value: 'Wrong number', reached: false },
 ] as const;
 export type CallOutcome = (typeof CALL_OUTCOMES)[number]['value'];
+
+/** "What do they need?" — stored comma-separated in the lead's `need`. */
+export const NEEDS = ['Website', 'Social media', 'Ads', 'Branding', 'App', 'Not sure'] as const;
+/** "Next step" choices. */
+export const NEXT_STEPS = ['Call again', 'Send WhatsApp', 'Book discovery call', 'Drop'] as const;
+
+/** Status pill label and colour family. */
+export function statusTone(status: string): { label: string; tone: 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost' } {
+  switch (status) {
+    case 'Contacted': return { label: 'Contacted', tone: 'contacted' };
+    case 'Qualified': return { label: 'Qualified', tone: 'qualified' };
+    case 'Proposal Sent': return { label: 'Proposal', tone: 'proposal' };
+    case 'Negotiating': return { label: 'Negotiating', tone: 'proposal' };
+    case 'Won': return { label: 'Won', tone: 'won' };
+    case 'Lost': return { label: 'Lost', tone: 'lost' };
+    default: return { label: 'New', tone: 'new' };
+  }
+}
 
 export const isReachedOutcome = (outcome: string) => CALL_OUTCOMES.some((o) => o.value === outcome && o.reached);
 
 export const LEAD_SOURCES = ['Google Places', 'Instagram', 'Referral', 'Walk-in', 'Website', 'Cold call', 'Other'] as const;
 
 export const BUSINESS_CATEGORIES = [
-  'Gym', 'Salon', 'Spa', 'Restaurant', 'Cafe', 'Clinic', 'Dentist', 'Hospital', 'Coaching institute',
-  'School', 'Hotel', 'Real estate agency', 'Boutique', 'Jewellery store', 'Car dealer', 'Bakery',
-  'Pharmacy', 'Yoga studio', 'Interior designer', 'Event planner',
+  'Gym / Fitness', 'Restaurant / Café', 'Salon / Spa', 'Clinic / Doctor', 'Dentist', 'Coaching / Education', 'Retail shop',
+  'Hotel', 'Real estate agency', 'Boutique', 'Jewellery store', 'Car dealer', 'Bakery', 'Pharmacy', 'Yoga studio',
+  'Interior designer', 'Event planner', 'School', 'Hospital',
 ] as const;
 
 // ─── Assignment countdown ───────────────────────────────────────────────────

@@ -28,10 +28,13 @@ import { claimPlacesCall, releasePlacesCall } from './budget.ts';
 export const searchSchema = z.object({
   category: z.string().trim().min(2, 'Enter a business category.').max(80),
   city: z.string().trim().min(2, 'Choose a city.').max(80),
-  /** Disambiguates same-named cities (e.g. Udaipur, Rajasthan vs Udaipur, Tripura). */
-  state: z.string().trim().max(80).optional(),
+  /** Required: disambiguates same-named cities (e.g. Udaipur, Rajasthan vs Udaipur, Tripura). */
+  state: z.string({ required_error: 'Choose a state.' }).trim().min(2, 'Choose a state.').max(80),
   limit: z.number().int().min(1).max(20).default(10),
 });
+
+/** The Google query: business type, city, state and country. */
+export const placesQuery = (i: { category: string; city: string; state: string }) => `${i.category} in ${i.city}, ${i.state}, India`;
 
 export const importSchema = z.object({
   category: z.string().trim().min(1).max(80),
@@ -96,7 +99,7 @@ export class PlacesService {
 
   async search(actor: SessionUser, input: z.infer<typeof searchSchema>, ip?: string) {
     const results = await this.paidCall('text_search_enterprise', actor, (c) =>
-      c.searchText(`${input.category} in ${input.city}${input.state ? `, ${input.state}` : ''}`, input.limit),
+      c.searchText(placesQuery(input), input.limit),
     );
 
     // Mark what we already have — compared in memory, nothing stored.
@@ -113,7 +116,7 @@ export class PlacesService {
       action: 'places.search',
       entity: 'PlacesClaims',
       // Our inputs and a count only — no Places content.
-      after: { category: input.category, city: input.city, state: input.state ?? '', limit: input.limit, results: results.length },
+      after: { category: input.category, city: input.city, state: input.state, limit: input.limit, results: results.length },
       ip,
     });
     return { results: marked, searchedAt: this.db.now().toISOString() };
