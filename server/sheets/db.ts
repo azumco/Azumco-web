@@ -1,0 +1,252 @@
+// The data layer over a spreadsheet: cached reads, one serialized write queue,
+// UUID-addressed rows and optimistic concurrency.
+//
+// ── Reads ───────────────────────────────────────────────────────────────────
+// Each tab is cached in memory for a short TTL. A write replaces the cache with
+// the fresh state it just read, so this server never serves its own stale
+// data; the TTL only bounds how long a hand-edit in the spreadsheet takes to
+// show up.
+//
+// ── Writes ──────────────────────────────────────────────────────────────────
+// Every write goes through `exclusive()`, a single in-process queue. Inside it
+// the tab is re-read from Sheets (bypassing the cache), the row is located by
+// id, the change is checked and then written. Because only one queued task runs
+// at a time, a check-then-write inside `exclusive()` cannot interleave with
+// another one in this process. (Cross-process safety during a deploy overlap is
+// handled separately for budget claims and bookings by write-then-read-back.)
+
+import { randomUUID } from 'node:crypto';
+import { a1Tab, columnLetter, type Grid, type SheetsBackend } from './backend.ts';
+import { columnsOf, TABS, type Row, type TabName } from './schema.ts';
+
+export class ConflictError extends Error {
+  readonly status = 409;
+  constructor(message = 'This record was changed by someone else. Reload it and try again.') {
+    super(message);
+  }
+}
+
+export class NotFoundError extends Error {
+  readonly status = 404;
+  constructor(message = 'Not found.') {
+    super(message);
+  }
+}
+
+interface TabState {
+  header: string[];
+  rows: Row[];
+  /** id → 1-based sheet row number at the time of the read. */
+  rowNumbers: Map<string, number>;
+  fetchedAt: number;
+}
+
+export interface DbOptions {
+  cacheTtlMs?: number;
+  now?: () => Date;
+}
+
+export class Db {
+  private cache = new Map<TabName, TabState>();
+  private sheetIds = new Map<string, number>();
+  private queue: Promise<unknown> = Promise.resolve();
+  private readonly ttl: number;
+  readonly now: () => Date;
+
+  constructor(
+    readonly backend: SheetsBackend,
+    opts: DbOptions = {},
+  ) {
+    this.ttl = opts.cacheTtlMs ?? 30_000;
+    this.now = opts.now ?? (() => new Date());
+  }
+
+  // ─── Setup ──────────────────────────────────────────────────────────────
+
+  /** Create missing tabs and missing header columns. Idempotent. */
+  async ensureSchema(): Promise<void> {
+    await this.exclusive(async () => {
+      const names = Object.keys(TABS) as TabName[];
+      const existing = new Set((await this.backend.listTabs()).map((t) => t.title));
+      const missing = names.filter((n) => !existing.has(n));
+      await this.backend.addTabs(missing);
+      for (const t of await this.backend.listTabs()) this.sheetIds.set(t.title, t.sheetId);
+
+      const grids = await this.backend.readTabs(names);
+      const headerWrites: { range: string; values: Grid }[] = [];
+      names.forEach((name, i) => {
+        const header = grids[i][0] ?? [];
+        const wanted = columnsOf(name);
+        const add = wanted.filter((c) => !header.includes(c));
+        if (add.length) {
+          headerWrites.push({
+            range: `${a1Tab(name)}!${columnLetter(header.length + 1)}1`,
+            values: [add],
+          });
+        }
+      });
+      await this.backend.writeRanges(headerWrites);
+      this.cache.clear();
+    });
+  }
+
+  // ─── Queue ──────────────────────────────────────────────────────────────
+
+  /**
+   * Run `task` alone: no other exclusive task starts until it settles. A
+   * failing task does not block the queue for the next one.
+   */
+  exclusive<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  // ─── Reads ──────────────────────────────────────────────────────────────
+
+  /** Cached rows of a tab. */
+  async all(tab: TabName): Promise<Row[]> {
+    const hit = this.cache.get(tab);
+    if (hit && this.now().getTime() - hit.fetchedAt < this.ttl) return hit.rows;
+    return (await this.loadFresh([tab]))[0].rows;
+  }
+
+  async find(tab: TabName, id: string): Promise<Row | undefined> {
+    return (await this.all(tab)).find((r) => r.id === id);
+  }
+
+  /** Read tabs straight from Sheets, refreshing the cache. Batched into one request. */
+  async loadFresh(tabs: TabName[]): Promise<TabState[]> {
+    const grids = await this.backend.readTabs(tabs);
+    return tabs.map((tab, i) => {
+      const state = parseGrid(grids[i], this.now().getTime());
+      this.cache.set(tab, state);
+      return state;
+    });
+  }
+
+  invalidate(tab?: TabName): void {
+    if (tab) this.cache.delete(tab);
+    else this.cache.clear();
+  }
+
+  // ─── Writes (each one queued) ───────────────────────────────────────────
+
+  insert(tab: TabName, data: Record<string, string>, actorId: string): Promise<Row> {
+    return this.exclusive(() => this.insertUnqueued(tab, data, actorId));
+  }
+
+  /**
+   * Update a row. Pass `expectedUpdatedAt` (the value the editor loaded) to
+   * reject the write if someone else saved in between.
+   */
+  update(
+    tab: TabName,
+    id: string,
+    patch: Record<string, string>,
+    actorId: string,
+    expectedUpdatedAt?: string,
+  ): Promise<{ before: Row; after: Row }> {
+    return this.exclusive(() => this.updateUnqueued(tab, id, patch, actorId, expectedUpdatedAt));
+  }
+
+  remove(tab: TabName, id: string, actorId: string, expectedUpdatedAt?: string): Promise<Row> {
+    return this.exclusive(() => this.removeUnqueued(tab, id, actorId, expectedUpdatedAt));
+  }
+
+  // The *Unqueued variants are for use INSIDE an exclusive() task that needs
+  // several steps to be atomic together. Calling them outside the queue
+  // forfeits the serialization guarantee.
+
+  async insertUnqueued(tab: TabName, data: Record<string, string>, actorId: string): Promise<Row> {
+    const [state] = await this.loadFresh([tab]);
+    const stamp = this.now().toISOString();
+    const row = { ...data, id: data.id || randomUUID(), createdAt: stamp, updatedAt: stamp, updatedBy: actorId } as Row;
+    await this.backend.appendRows(tab, [toCells(state.header, row)]);
+    state.rows = [...state.rows, row];
+    state.rowNumbers.set(row.id, state.rows.length + 1);
+    return row;
+  }
+
+  async updateUnqueued(
+    tab: TabName,
+    id: string,
+    patch: Record<string, string>,
+    actorId: string,
+    expectedUpdatedAt?: string,
+  ): Promise<{ before: Row; after: Row }> {
+    const [state] = await this.loadFresh([tab]);
+    const index = state.rows.findIndex((r) => r.id === id);
+    if (index < 0) throw new NotFoundError();
+    const before = state.rows[index];
+    if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== before.updatedAt) throw new ConflictError();
+
+    // The system columns are not patchable: id is the identity, the stamps are ours.
+    const { id: _i, createdAt: _c, updatedAt: _u, updatedBy: _b, ...safe } = patch;
+    void _i; void _c; void _u; void _b;
+    let stamp = this.now().toISOString();
+    // Two edits in the same millisecond would leave updatedAt unchanged and
+    // defeat the concurrency check; nudge forward so every write changes it.
+    if (stamp <= before.updatedAt) stamp = new Date(Date.parse(before.updatedAt) + 1).toISOString();
+    const after = { ...before, ...safe, updatedAt: stamp, updatedBy: actorId } as Row;
+
+    const rowNumber = state.rowNumbers.get(id)!;
+    await this.backend.writeRanges([
+      { range: `${a1Tab(tab)}!A${rowNumber}:${columnLetter(state.header.length)}${rowNumber}`, values: [toCells(state.header, after)] },
+    ]);
+    state.rows = state.rows.map((r, i) => (i === index ? after : r));
+    return { before, after };
+  }
+
+  async removeUnqueued(tab: TabName, id: string, _actorId: string, expectedUpdatedAt?: string): Promise<Row> {
+    const [state] = await this.loadFresh([tab]);
+    const row = state.rows.find((r) => r.id === id);
+    if (!row) throw new NotFoundError();
+    if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== row.updatedAt) throw new ConflictError();
+    const sheetId = await this.sheetIdOf(tab);
+    await this.backend.deleteRow(sheetId, state.rowNumbers.get(id)!);
+    // Row numbers below the deleted one shift up; drop the cache rather than patch it.
+    this.cache.delete(tab);
+    return row;
+  }
+
+  private async sheetIdOf(tab: TabName): Promise<number> {
+    if (!this.sheetIds.has(tab)) {
+      for (const t of await this.backend.listTabs()) this.sheetIds.set(t.title, t.sheetId);
+    }
+    const id = this.sheetIds.get(tab);
+    if (id === undefined) throw new Error(`Tab ${tab} does not exist`);
+    return id;
+  }
+}
+
+function parseGrid(grid: Grid, fetchedAt: number): TabState {
+  const header = (grid[0] ?? []).map((h) => h.trim());
+  const rows: Row[] = [];
+  const rowNumbers = new Map<string, number>();
+  for (let i = 1; i < grid.length; i++) {
+    const cells = grid[i];
+    const row: Record<string, string> = {};
+    header.forEach((h, j) => {
+      if (h) row[h] = cells[j] ?? '';
+    });
+    // Blank rows (e.g. left behind by a hand-edit) are skipped, not treated as records.
+    if (!row.id) continue;
+    rows.push(row as Row);
+    rowNumbers.set(row.id, i + 1);
+  }
+  return { header, rows, rowNumbers, fetchedAt };
+}
+
+function toCells(header: string[], row: Record<string, string>): string[] {
+  return header.map((h) => row[h] ?? '');
+}
+
+// ─── Value helpers ───────────────────────────────────────────────────────────
+
+export const bool = (v: string | undefined) => v === 'TRUE' || v === 'true';
+export const boolCell = (v: boolean) => (v ? 'TRUE' : 'FALSE');
+export const num = (v: string | undefined, fallback = 0) => {
+  const n = Number(v);
+  return v === undefined || v === '' || !Number.isFinite(n) ? fallback : n;
+};
