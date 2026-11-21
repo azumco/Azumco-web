@@ -334,6 +334,13 @@ describe('AC7 — confirm contact', () => {
     expect(imp.body).toEqual({ imported: 0, skipped: 2 });
   });
 
+  it('adds the state to the Google query when one is chosen', async () => {
+    await setup();
+    await admin.req('POST', '/api/places/search', { category: 'Cafe', state: 'Tripura', city: 'Udaipur', limit: 2 });
+    await admin.req('POST', '/api/places/search', { category: 'Cafe', city: 'Udaipur', limit: 2 });
+    expect(places.calls).toEqual(['search:Cafe in Udaipur, Tripura', 'search:Cafe in Udaipur']);
+  });
+
   it('unconfirmed Google leads show "Category · City · Google lead"', async () => {
     await setup();
     const [lead] = await importLeads(1);

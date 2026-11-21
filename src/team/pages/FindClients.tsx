@@ -5,6 +5,8 @@
 import { useState, type FormEvent } from 'react';
 import { Check, ExternalLink, MapPin, Phone, Search } from 'lucide-react';
 import { BUSINESS_CATEGORIES } from '../../../shared/rules';
+import { DEFAULT_STATE } from '../../../shared/india';
+import StateCityPicker from '../components/StateCityPicker';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { navigate } from '../router';
@@ -50,9 +52,9 @@ function Usage({ usage }: { usage: PlacesUsage }) {
 export default function FindClients() {
   const status = useApi<Status>('/places/status');
   const team = useApi<{ users: TeamMember[] }>('/team');
-  const [form, setForm] = useState({ category: '', city: '', limit: '10' });
+  const [form, setForm] = useState({ category: '', state: DEFAULT_STATE, city: '', limit: '10' });
   const [results, setResults] = useState<Result[] | null>(null);
-  const [searched, setSearched] = useState<{ category: string; city: string; searchedAt: string } | null>(null);
+  const [searched, setSearched] = useState<{ category: string; city: string; state: string; searchedAt: string } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [assignTo, setAssignTo] = useState('');
   const [hours, setHours] = useState('');
@@ -64,12 +66,12 @@ export default function FindClients() {
     e.preventDefault();
     setMessage('');
     const r = await search.run(() =>
-      api<{ results: Result[]; searchedAt: string }>('POST', '/places/search', { category: form.category, city: form.city, limit: Number(form.limit) }),
+      api<{ results: Result[]; searchedAt: string }>('POST', '/places/search', { category: form.category, state: form.state, city: form.city, limit: Number(form.limit) }),
     );
     void status.reload();
     if (r) {
       setResults(r.results);
-      setSearched({ category: form.category.trim(), city: form.city.trim(), searchedAt: r.searchedAt });
+      setSearched({ category: form.category.trim(), city: form.city.trim(), state: form.state, searchedAt: r.searchedAt });
       setPicked(new Set(r.results.filter((x) => !x.alreadyInLeads).map((x) => x.placeId)));
     }
   };
@@ -112,14 +114,14 @@ export default function FindClients() {
             <div className="space-y-6">
               <Usage usage={s.usage} />
               <Card>
-                <form onSubmit={runSearch} className="grid gap-5 sm:grid-cols-[1fr_1fr_120px_auto] sm:items-end">
+                <form onSubmit={runSearch} className="grid gap-5 sm:grid-cols-2 sm:items-end lg:grid-cols-[1.2fr_1fr_1fr_100px_auto]">
                   <Field label="Category" list="place-categories" required placeholder="Gym" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
                   <datalist id="place-categories">
                     {BUSINESS_CATEGORIES.map((c) => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>
-                  <Field label="City" required placeholder="Bhopal" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+                  <StateCityPicker required state={form.state} city={form.city} onChange={(next) => setForm({ ...form, ...next })} />
                   <Select label="Results" value={form.limit} onChange={(e) => setForm({ ...form, limit: e.target.value })} options={['1', '5', '10', '15', '20']} />
                   <Button type="submit" busy={search.busy} disabled={s.usage.paused || s.usage.remaining <= 0}>
                     <Search className="h-4 w-4" /> Search
@@ -142,7 +144,7 @@ export default function FindClients() {
                 <section className="space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <h2 className="text-xs uppercase tracking-[0.18em] text-fg-3">
-                      {results.length} result{results.length === 1 ? '' : 's'} · {searched?.category} in {searched?.city}
+                      {results.length} result{results.length === 1 ? '' : 's'} · {searched?.category} in {searched?.city}, {searched?.state}
                     </h2>
                     <GoogleAttribution />
                   </div>
