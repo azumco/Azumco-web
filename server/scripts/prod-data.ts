@@ -9,6 +9,7 @@
 // Demo detection is deliberately narrow: known demo names, the demo/test email
 // domains, and the fictitious business names used by local demos and tests.
 
+import { writeFileSync } from 'node:fs';
 import { GoogleSheetsBackend, parseServiceAccount } from '../sheets/google.ts';
 import { a1Tab, columnLetter, type Grid } from '../sheets/backend.ts';
 import { TABS } from '../sheets/schema.ts';
@@ -96,7 +97,27 @@ async function main() {
     return;
   }
 
-  console.log(`Unknown mode "${mode}". Use inspect, clean or zyvia.`);
+  if (mode === 'snapshot') {
+    // Secret-bearing columns are blanked before the copy is written.
+    const out = process.argv[3];
+    if (!out) throw new Error('Give an output file.');
+    const safe = grids.map((g) => {
+      const header = g[0] ?? [];
+      const drop = header.map((h) => /hash|token|csrf|secret/i.test(h));
+      return g.map((row, r) => (r === 0 ? row : row.map((c, j) => (drop[j] && c ? '<redacted>' : c))));
+    });
+    writeFileSync(out, JSON.stringify(Object.fromEntries(titles.map((t, i) => [t, safe[i]]))));
+    const missing = Object.entries(TABS).flatMap(([t, cols]) => {
+      const i = titles.indexOf(t);
+      if (i < 0) return [`${t} (tab)`];
+      const header = grids[i][0] ?? [];
+      return (cols as readonly string[]).filter((c) => !header.includes(c)).map((c) => `${t}.${c}`);
+    });
+    console.log(`Snapshot written. Schema: ${missing.length ? `MISSING ${missing.join(', ')}` : `all ${Object.keys(TABS).length} tabs and every header present`}.`);
+    return;
+  }
+
+  console.log(`Unknown mode "${mode}". Use inspect, clean, zyvia or snapshot <file>.`);
 }
 
 main().catch((err) => {

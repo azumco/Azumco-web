@@ -19,7 +19,10 @@
     "scan:secrets": "tsx --env-file-if-exists=.env server/test/scan-secrets.ts",
     "prod:data": "tsx --env-file-if-exists=.env server/scripts/prod-data.ts",
     "dev:demo": "tsx server/dev/demo.ts",
-    "env:check": "tsx --env-file-if-exists=.env server/scripts/env-check.ts"
+    "env:check": "tsx --env-file-if-exists=.env server/scripts/env-check.ts",
+    "staging": "tsx --env-file-if-exists=.env server/scripts/staging.ts",
+    "start:local": "node --env-file-if-exists=.env dist-server/index.js",
+    "staging:walk": "tsx --env-file-if-exists=.env server/scripts/staging-walk.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -29,7 +32,7 @@
     "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -46,6 +49,6 @@
     "vitest": "^5.1.1"
   },
   "engines": {
-    "node": ">=20.19"
+    "node": "22.x"
   }
 }

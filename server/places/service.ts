@@ -29,7 +29,7 @@ export const searchSchema = z.object({
   category: z.string().trim().min(2, 'Enter a business category.').max(80),
   city: z.string().trim().min(2, 'Choose a city.').max(80),
   /** Required: disambiguates same-named cities (e.g. Udaipur, Rajasthan vs Udaipur, Tripura). */
-  state: z.string({ required_error: 'Choose a state.' }).trim().min(2, 'Choose a state.').max(80),
+  state: z.string({ error: 'Choose a state.' }).trim().min(2, 'Choose a state.').max(80),
   limit: z.number().int().min(1).max(20).default(10),
 });
 
