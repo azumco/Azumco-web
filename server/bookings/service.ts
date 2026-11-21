@@ -20,6 +20,7 @@ import { assertLeadAccess, isFounder } from '../leads/access.ts';
 import { leadLabel, readLeads } from '../leads/service.ts';
 import { normalizePhone } from '../../shared/phone.ts';
 import { formatDate } from '../../shared/time.ts';
+import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, MEETING_MODES, normalizeMeetLink } from '../../shared/meet.ts';
 import { expandRules, planSlots, type AvailRule } from '../../shared/slots.ts';
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 14:30.');
@@ -36,7 +37,7 @@ export const availabilitySchema = z
   })
   .refine((a) => a.start < a.end, { message: 'The end time must be after the start time.' });
 
-export const MEETING_MODES = ['Zoho Cliq', 'Phone call', 'In person'] as const;
+export { MEETING_MODES };
 
 export const bookingSchema = z.object({
   leadId: z.string().min(1),
@@ -45,7 +46,8 @@ export const bookingSchema = z.object({
   start: hhmm,
   clientName: z.string().trim().min(1, 'Enter the client name.').max(150),
   phone: z.string().trim().max(40).default(''),
-  mode: z.enum(MEETING_MODES),
+  mode: z.enum(MEETING_MODES).default(DEFAULT_MEETING_MODE),
+  /** Zoho Cliq: the room link. Google Meet: a per-booking link, used only when the founder has none saved. */
   link: z.string().trim().max(500).default(''),
   notes: z.string().trim().max(1000).default(''),
 });
@@ -184,6 +186,9 @@ export class BookingService {
     assertLeadAccess(actor, lead, this.db.now(), await this.db.all('Expirations'));
     const phone = input.phone ? normalizePhone(input.phone) : '';
     if (input.phone && !phone) throw new HttpError(400, 'That phone number does not look right.');
+    const meet = input.mode === 'Google Meet';
+    const override = meet ? normalizeMeetLink(input.link) : '';
+    if (meet && override === null) throw new HttpError(400, MEET_LINK_ERROR, 'MEET_LINK_INVALID');
 
     return this.db.exclusive(async () => {
       const now = this.db.now();
@@ -192,7 +197,16 @@ export class BookingService {
         (s) => !s.booked && s.start === input.start && (input.founderId === 'any' || s.founderId === input.founderId),
       );
       if (!open.length) throw new HttpError(409, 'That slot is no longer available. Pick another time.', 'SLOT_TAKEN');
-      const slot = open[0];
+      const users = await this.db.all('Users');
+      const meetOf = (id: string) => normalizeMeetLink(users.find((u) => u.id === id)?.meetLink) || '';
+      // "Any founder" with Google Meet: prefer a founder who has a Meet link saved.
+      const slot = meet ? (open.find((s) => meetOf(s.founderId)) ?? open[0]) : open[0];
+      // The founder's saved link wins; the per-booking link covers a founder without one.
+      const link = meet ? meetOf(slot.founderId) || override || '' : input.link;
+      if (meet && !link) {
+        const name = (users.find((u) => u.id === slot.founderId)?.name ?? 'This founder').split(' ')[0];
+        throw new HttpError(400, `${name} hasn't added a Meet link yet. Paste a Meet link for this booking.`, 'MEET_LINK_MISSING');
+      }
 
       const mine = await this.db.insertUnqueued('Bookings', {
         leadId: input.leadId,
@@ -204,7 +218,7 @@ export class BookingService {
         clientName: input.clientName,
         phone: phone || '',
         mode: input.mode,
-        link: input.link,
+        link,
         notes: input.notes,
         bookedBy: actor.id,
         callHappened: '',
@@ -219,14 +233,13 @@ export class BookingService {
       }
 
       await this.db.updateUnqueued('Leads', input.leadId, { discoveryCallDate: slot.date }, actor.id);
-      const users = await this.db.all('Users');
       const first = (id: string) => (users.find((u) => u.id === id)?.name ?? '').split(' ')[0];
       const time = to12(slot.start);
       await notifyUnqueued(this.db, [
         {
           userId: slot.founderId,
           type: 'booking_created',
-          message: `Discovery call booked: ${leadLabel(lead)} on ${formatDate(slot.date)} at ${time} (${input.mode}) by ${first(actor.id)}.`,
+          message: `Discovery call booked: ${leadLabel(lead)} on ${formatDate(slot.date)} at ${time} (${input.mode}) by ${first(actor.id)}.${meet ? ` Google Meet: ${link}` : ''}`,
           refId: mine.id,
         },
         ...(actor.id !== slot.founderId

@@ -172,6 +172,12 @@ Demo data exists only in `server/dev/demo.ts`. It runs only with `DEMO_DATA=true
 
 Only the person a goal is **assigned to** can change its status, including marking it done. Everyone else gets 403, super admin included. Founders can still edit the title, dates, owner and support. Every status change is audited.
 
+### Google Meet for booked calls
+
+No Google API or sign-in is involved. Each founder pastes one reusable Meet link (Calendar page, or the super admin in Settings → Team). Create one at meet.google.com → New meeting → Create a meeting for later. Only links like `https://meet.google.com/abc-defg-hij` are accepted.
+
+Google Meet is the default meeting type when booking. The booking uses the link of the founder the slot belongs to; with "Any founder", a free founder who has a link is preferred. If that founder has no link, the booker can paste one for that booking; without either, the booking is refused. After booking: Copy link, Send to client on WhatsApp (prefilled message with the IST time), Add to Google Calendar, and for founders Join Google Meet. The founder's notification includes the link. Links are shown only to signed-in team users.
+
 ### Free slots
 
 "Add my free slots" previews exactly what it will create. Preview and server use the same planner (`shared/slots.ts`). It merges overlapping time for the same founder instead of duplicating it, and refuses past times and reversed ranges.

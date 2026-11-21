@@ -13,7 +13,7 @@ export const TABS = {
   Users: [
     'email', 'name', 'role', 'active', 'passwordHash', 'mustChangePassword',
     'failedAttempts', 'lockedUntil', 'sessionVersion', 'lastLoginAt',
-    'jobTitle', 'canReceiveLeads', 'calendarColor',
+    'jobTitle', 'canReceiveLeads', 'calendarColor', 'meetLink',
   ],
   Sessions: ['tokenHash', 'userId', 'sessionVersion', 'csrfToken', 'expiresAt', 'ip', 'userAgent'],
   Settings: ['key', 'value'],

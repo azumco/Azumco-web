@@ -20,6 +20,8 @@ import { BookingService, availabilitySchema, bookingSchema, rescheduleSchema, sl
 import { FinanceService } from '../finance/service.ts';
 import { GoalService } from '../goals/service.ts';
 import { employeeDashboard, founderDashboard } from '../dashboard/service.ts';
+import { checkedMeetLink } from './users.ts';
+import { audit } from '../audit.ts';
 
 const FOUNDERS = requireRole('admin');
 const SUPER = requireRole('super_admin');
@@ -180,8 +182,20 @@ export function workRoutes(db: Db, places: PlacesService) {
     const founders = users.filter((u) => (u.role === 'admin' || u.role === 'super_admin') && u.active !== 'FALSE');
     res.json({
       slots: await bookings.slots(q.from ?? istDate(db.now()), q.days, q.founderId),
-      founders: founders.map((u) => ({ id: u.id, name: u.name, calendarColor: u.calendarColor || 'neutral' })),
+      // Meet links are shown to signed-in team users only (this route needs a session).
+      founders: founders.map((u) => ({ id: u.id, name: u.name, calendarColor: u.calendarColor || 'neutral', meetLink: u.meetLink ?? '' })),
     });
+  });
+
+  // A founder sets their own Google Meet link (the super admin can also set
+  // anyone's in Settings). Team members get 403.
+  r.patch('/me/meet-link', FOUNDERS, async (req, res) => {
+    const actor = me(res);
+    const { meetLink } = parse(z.object({ meetLink: z.string().max(200) }).strict(), req.body);
+    const link = checkedMeetLink(meetLink, actor.role);
+    const { before } = await db.update('Users', actor.id, { meetLink: link }, actor.id);
+    await audit(db, { actorId: actor.id, action: 'users.meet_link', entity: 'Users', entityId: actor.id, before: { meetLink: before.meetLink ?? '' }, after: { meetLink: link }, ip: req.ip });
+    res.json({ meetLink: link });
   });
 
   r.get('/bookings', async (_req, res) => {
