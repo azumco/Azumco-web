@@ -32,9 +32,10 @@ function status(u: ManagedUser): string {
   return 'Active';
 }
 
-export default function Users({ me }: { me: TeamUser }) {
+export default function Users({ me, embedded }: { me: TeamUser; embedded?: boolean }) {
   const [users, setUsers] = useState<ManagedUser[] | null>(null);
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const [busy, setBusy] = useState('');
   const [issued, setIssued] = useState<{ name: string; password: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -48,6 +49,7 @@ export default function Users({ me }: { me: TeamUser }) {
 
   const run = async (id: string, fn: () => Promise<void>) => {
     setError('');
+    setInfo('');
     setBusy(id);
     try {
       await fn();
@@ -68,16 +70,23 @@ export default function Users({ me }: { me: TeamUser }) {
     });
 
   const patch = (u: ManagedUser, body: { role?: string; active?: boolean }) =>
-    run(u.id, () => api('PATCH', `/users/${u.id}`, { ...body, expectedUpdatedAt: u.updatedAt }));
+    run(u.id, async () => {
+      const r = await api<{ leadsReleased: number }>('PATCH', `/users/${u.id}`, { ...body, expectedUpdatedAt: u.updatedAt });
+      if (r.leadsReleased) setInfo(`${u.name} was deactivated and ${r.leadsReleased} lead${r.leadsReleased === 1 ? '' : 's'} went back to Unclaimed.`);
+    });
 
   if (!users && !error) return <Loading />;
 
   return (
     <div>
-      <Eyebrow>Settings</Eyebrow>
-      <h1 className="mt-4 text-4xl font-medium leading-[1.05] tracking-[-0.035em] sm:text-5xl">
-        Team <span className="font-serif font-normal italic tracking-normal text-brand">users</span>
-      </h1>
+      {!embedded && (
+        <>
+          <Eyebrow>Settings</Eyebrow>
+          <h1 className="mt-4 text-4xl font-medium leading-[1.05] tracking-[-0.035em] sm:text-5xl">
+            Team <span className="font-serif font-normal italic tracking-normal text-brand">users</span>
+          </h1>
+        </>
+      )}
 
       {issued && (
         <Card className="mt-8 border-brand/40">
@@ -104,8 +113,9 @@ export default function Users({ me }: { me: TeamUser }) {
         </Card>
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 space-y-3">
         <ErrorText>{error}</ErrorText>
+        {info && <p role="status" className="text-sm text-fg">{info}</p>}
       </div>
 
       <div className="mt-6 space-y-4">
@@ -131,18 +141,18 @@ export default function Users({ me }: { me: TeamUser }) {
                       value={u.role}
                       disabled={busy === u.id}
                       onChange={(e) => patch(u, { role: e.target.value })}
-                      className="min-h-10 cursor-pointer rounded-full border border-line-2 bg-bg px-4 text-sm text-fg"
+                      className="min-h-11 cursor-pointer rounded-full border border-line-2 bg-bg px-4 text-sm text-fg"
                     >
                       <option value="admin">Admin</option>
                       <option value="employee">Employee</option>
                     </select>
-                    <Button variant="ghost" className="!min-h-10" busy={busy === u.id} onClick={() => issueTemp(u)}>
+                    <Button variant="ghost" size="sm" busy={busy === u.id} onClick={() => issueTemp(u)}>
                       <KeyRound className="h-4 w-4" />
                       {u.hasPassword ? 'Reset password' : 'Create password'}
                     </Button>
                     <Button
                       variant="ghost"
-                      className="!min-h-10"
+                      size="sm"
                       disabled={busy === u.id}
                       onClick={() => patch(u, { active: !u.active })}
                     >
