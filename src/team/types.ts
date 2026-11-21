@@ -129,3 +129,9 @@ export interface TeamMember {
 }
 
 export const firstName = (name: string) => (name || '').trim().split(/\s+/)[0] ?? '';
+
+/** "Good morning/afternoon/evening" by the current hour in India (IST). */
+export function istGreeting(now = new Date()) {
+  const h = Number(now.toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }));
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}

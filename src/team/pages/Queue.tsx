@@ -7,7 +7,7 @@ import { navigate } from '../router';
 import { Async, Countdown, Empty, Segmented } from '../ui';
 import Workspace, { LeadRow } from '../components/Workspace';
 import { shortLabel } from './LeadDetail';
-import { firstName, type Lead, type LeadsResponse, type TeamUser } from '../types';
+import { firstName, istGreeting, type Lead, type LeadsResponse, type TeamUser } from '../types';
 
 interface Me {
   stats: { contacted: number; qualified: number };
@@ -21,7 +21,7 @@ export function Greeting({ user, line }: { user: TeamUser; line: string }) {
   return (
     <>
       <h1 className="text-[2.2rem] font-medium leading-tight tracking-[-0.035em]">
-        Hi <span className="font-serif font-normal italic tracking-normal text-brand">{firstName(user.name)}</span>
+        {istGreeting()}, <span className="font-serif font-normal italic tracking-normal text-brand">{firstName(user.name)}</span>
       </h1>
       <p className="mt-1 text-fg-2">{line}</p>
     </>

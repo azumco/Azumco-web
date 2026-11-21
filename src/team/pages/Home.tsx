@@ -6,7 +6,7 @@ import { formatDate, formatInr, istDate } from '../../../shared/time';
 import { useApi } from '../hooks';
 import { navigate } from '../router';
 import { Async, Avatar, Button, Card, CardHeader, ProgressBar, Stat, cx } from '../ui';
-import type { PlacesUsage, TeamUser } from '../types';
+import { firstName, istGreeting, type PlacesUsage, type TeamUser } from '../types';
 
 interface Founder {
   needs: { followUpsToday: number; firstFollowUpLeadId: string | null; overdue: number; unclaimed: number; callsThisWeek: number; nextCallDate: string | null };
@@ -39,11 +39,6 @@ const to12 = (t: string) => {
   return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
 };
 
-function greeting() {
-  const h = Number(new Date().toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }));
-  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-}
-
 function Tile({ count, text, action, href, first }: { count: number; text: string; action: string; href: string; first?: boolean }) {
   return (
     <a href={href} onClick={go(href)} aria-label={`${count} ${text} — ${action}`} className={cx('flex items-center gap-3 border-b border-line py-3 last:border-0 sm:block sm:rounded-2xl sm:border sm:p-5 sm:last:border', first ? 'sm:border-brand/70 sm:bg-bg-3/40' : 'sm:border-transparent sm:bg-bg-3 sm:hover:border-line-2')}>
@@ -71,7 +66,7 @@ export default function Home({ user }: { user: TeamUser }) {
         <div>
           <p className="text-[11px] uppercase tracking-[0.18em] text-fg-3">{dateLine}</p>
           <h1 className="mt-2 text-3xl font-medium tracking-[-0.035em] sm:text-[2.6rem]">
-            {greeting()}, <span className="font-serif font-normal italic tracking-normal text-brand">{user.name.split(' ')[0]}</span>
+            {istGreeting()}, <span className="font-serif font-normal italic tracking-normal text-brand">{firstName(user.name)}</span>
           </h1>
           <p className="mt-2 text-fg-2">Here's what needs you today. Everything else can wait.</p>
         </div>
@@ -118,8 +113,8 @@ export default function Home({ user }: { user: TeamUser }) {
                 <Stat label="Win rate" value={d.totals.winRate === null ? '—' : `${d.totals.winRate}%`} hint={`${d.totals.won} won · ${d.totals.lost} lost`} />
               </div>
 
-              <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
-                <div className="flex flex-col gap-5">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+                <div className="flex min-w-0 flex-col gap-5">
                   <Card>
                     <CardHeader title="Pipeline" action={<a href="/team/leads" onClick={go('/team/leads')} className="inline-flex min-h-11 items-center gap-1 text-sm text-brand">All leads <ArrowRight className="h-3.5 w-3.5" /></a>} />
                     {pipeTotal === 0 ? (
@@ -181,7 +176,7 @@ export default function Home({ user }: { user: TeamUser }) {
                   </Card>
                 </div>
 
-                <div className="flex flex-col gap-5">
+                <div className="flex min-w-0 flex-col gap-5">
                   <Card className={cx(d.commission.length === 0 && 'flex-1')}>
                     <p className="text-[11px] uppercase tracking-[0.18em] text-fg-3">Milestone</p>
                     {d.milestone ? (
