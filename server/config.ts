@@ -57,6 +57,11 @@ const envSchema = z
      * Render (RENDER is set there) and when the two ids are the same, so it can
      * never be switched on in production.
      */
+    /**
+     * Run the maintenance sweep inside the server every 15 minutes (plus one
+     * catch-up run ~10 s after boot). Default: on in production, off otherwise.
+     */
+    INTERNAL_SCHEDULER: z.enum(['true', 'false']).optional(),
     STAGING_MODE: z.enum(['true', 'false']).default('false'),
     STAGING_SPREADSHEET_ID: z.string().trim().optional(),
     STAGING_ASSIGNMENT_MINUTES: z.coerce.number().int().min(1).max(180).optional(),
@@ -89,6 +94,8 @@ const envSchema = z
 export type Config = z.infer<typeof envSchema> & {
   teamUsers: TeamUserSeed[];
   isProduction: boolean;
+  /** Run the maintenance job in-process (INTERNAL_SCHEDULER; default on in production). */
+  internalScheduler: boolean;
   /** The spreadsheet this process reads and writes. */
   activeSpreadsheetId: string | undefined;
   /** Assignment timer override in minutes — staging only, else null. */
@@ -136,6 +143,7 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
     ...parsed.data,
     teamUsers: team.data,
     isProduction: parsed.data.NODE_ENV === 'production',
+    internalScheduler: parsed.data.INTERNAL_SCHEDULER ? parsed.data.INTERNAL_SCHEDULER === 'true' : parsed.data.NODE_ENV === 'production',
     activeSpreadsheetId: staging ? parsed.data.STAGING_SPREADSHEET_ID : parsed.data.GOOGLE_SHEETS_SPREADSHEET_ID,
     assignmentOverrideMinutes: staging ? (parsed.data.STAGING_ASSIGNMENT_MINUTES ?? null) : null,
   };

@@ -11,6 +11,8 @@ import { Db } from './sheets/db.ts';
 import { MemoryBackend, type SheetsBackend } from './sheets/backend.ts';
 import { GoogleSheetsBackend, parseServiceAccount } from './sheets/google.ts';
 import { log } from './lib/log.ts';
+import { runMaintenance } from './leads/service.ts';
+import { MAINTENANCE_INTERVAL_MS, MAINTENANCE_START_DELAY_MS, startScheduler } from './scheduler.ts';
 
 let config;
 try {
@@ -54,3 +56,20 @@ const app = createApp({ config, db, ready, staticDir: path.resolve(here, '..', '
 app.listen(config.PORT, '0.0.0.0', () => {
   log.info('listening', { port: config.PORT });
 });
+
+// Maintenance sweep inside the process (no external cron needed). Waits for
+// bootstrap, then uses the same idempotent, queued job as /api/maintenance/run.
+if (config.internalScheduler) {
+  startScheduler({
+    name: 'maintenance',
+    intervalMs: MAINTENANCE_INTERVAL_MS,
+    startDelayMs: MAINTENANCE_START_DELAY_MS,
+    task: async () => {
+      await ready;
+      return runMaintenance(db);
+    },
+  });
+  log.info('internal scheduler on', { everyMinutes: MAINTENANCE_INTERVAL_MS / 60_000, firstRunSeconds: MAINTENANCE_START_DELAY_MS / 1000 });
+} else {
+  log.info('internal scheduler off (INTERNAL_SCHEDULER)');
+}

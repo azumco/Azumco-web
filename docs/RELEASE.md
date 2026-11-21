@@ -13,12 +13,12 @@ Branch: `feature/team-portal`. Everything below is done by a person; nothing her
 > - **Server:** Express 5 in `server/`, bundled to `dist-server/`. All data lives in one Google Sheet (18 tabs, created on first start). Sessions in Sheets, httpOnly + Secure + SameSite=Strict cookie, CSRF token, same-origin guard, rate limit and lockout, company-domain accounts only.
 > - **Roles:** super admin, admin (founders), team member. Teammates are added in Settings and appear everywhere. Only people with "Can receive leads" can be assigned leads and earn commission.
 > - **Find clients:** Google Places (New), one Text Search per search. Only place IDs are stored; contact details are fetched live and saved only after a team member confirms them on a call. One monthly cap and a pause switch cover every paid call.
-> - **Leads:** assignment timer with lazy expiry plus a token-protected sweep endpoint, call log, follow-ups, confirm contact with duplicate-phone check.
+> - **Leads:** assignment timer with lazy expiry, an in-process sweep every 15 minutes (plus a token-protected manual trigger), call log, follow-ups, confirm contact with duplicate-phone check.
 > - **Bookings:** founders' free time, team members book discovery calls, no double booking.
 > - **Money and goals:** expenses, Zyvia project, company registration milestone, commission (earned / paid / pending), team goals that only the assignee can tick off.
 > - **Seeds:** real data only (team, three expenses, Zyvia, the CS quote, seven goals, settings), each once.
 >
-> Verified: 120 tests, both type-checks, `npm ci --include=dev && npm run build:all` from a clean clone, `npm audit` clean, secret scan clean (history, `dist/`, `dist-server/`), staging end-to-end run with 2 real Places calls, production first-run check (seeds only; second start writes nothing).
+> Verified: 125 tests, both type-checks, `npm ci --include=dev && npm run build:all` from a clean clone, `npm audit` clean, secret scan clean (history, `dist/`, `dist-server/`), staging end-to-end run with 2 real Places calls, production first-run check (seeds only; second start writes nothing).
 
 ## 2. Push and merge
 
@@ -50,17 +50,20 @@ Branch: `feature/team-portal`. Everything below is done by a person; nothing her
 | `TEAM_USERS` | yes | same JSON as local |
 | `ALLOWED_EMAIL_DOMAIN` | optional | default `azumco.com` |
 | `GOOGLE_PLACES_API_KEY` | yes | the rotated key, restricted to Places API (New) |
-| `CRON_TOKEN` | yes | 32+ chars; maintenance returns 404 without it |
+| `CRON_TOKEN` | optional | 32+ chars; enables the manual/backup maintenance endpoint (404 without it) |
+| `INTERNAL_SCHEDULER` | no | leave unset: the sweep runs in-process by default in production. `false` turns it off |
 | `SUPERADMIN_INITIAL_PASSWORD` | **no** | the production super admin already exists (created on the first-run check); its password is the value in your local `.env`. The server ignores this variable now. |
 | `STAGING_MODE`, `STAGING_SPREADSHEET_ID`, `STAGING_ASSIGNMENT_MINUTES` | **never** | the server refuses to start with staging mode on Render |
 | `PORT`, `RENDER` | no | Render sets them |
 
-## 4. Schedulers (free, e.g. cron-job.org)
+## 4. Schedulers
 
-| Job | Request | Every |
-|---|---|---|
-| Keep warm | `GET https://<app>.onrender.com/api/health` | 10 minutes |
-| Maintenance | `POST https://<app>.onrender.com/api/maintenance/run` with header `Authorization: Bearer <CRON_TOKEN>` | 15 minutes |
+The maintenance sweep (returning lapsed lead assignments and sending "expiring soon" notices) runs **inside the server**: once ~10 s after start-up as a catch-up, then every 15 minutes (`INTERNAL_SCHEDULER`, on by default in production). It only runs while the service is awake. A sleeping free instance does nothing until something wakes it, and the catch-up run then processes anything overdue. Expiry is also enforced on every read, so nobody can work a lapsed lead either way; the sweep only makes the "lead expired" notifications arrive on time when nobody is using the app.
+
+| Job | Request | Every | Needed? |
+|---|---|---|---|
+| Keep warm (UptimeRobot, free) | `GET https://<app>.onrender.com/api/health` | 10 minutes | **yes, the only external job** |
+| Maintenance backup (e.g. cron-job.org) | `POST https://<app>.onrender.com/api/maintenance/run` with header `Authorization: Bearer <CRON_TOKEN>` | 15 minutes | optional |
 
 ## 5. First sign-in and passwords
 
@@ -88,7 +91,7 @@ Render dashboard → the service → **Events / Deploys** → pick the previous 
 | 9 | Goals | seven goals; only the assignee can mark one done |
 | 10 | Find clients → status | usage 0 of the cap; do **not** search unless you mean to (each search is billed) |
 | 11 | `POST /api/maintenance/run` without the token | 401 |
-| 12 | Scheduler runs once by hand | maintenance returns `{"ok":true,…}` |
+| 12 | Render logs, ~10 s after start | `scheduler: run complete` with `reason: startup` (then every 15 min while awake) |
 | 13 | Team member sign-in on a phone | Queue with bottom tabs, greeting with first name |
 
 ## 8. Staging (local only)

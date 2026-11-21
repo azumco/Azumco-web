@@ -73,7 +73,8 @@ On the first start the server creates every tab and header itself, then inserts 
 | `SUPERADMIN_INITIAL_PASSWORD` | first start only | 12+ characters; remove after first sign-in |
 | `TEAM_USERS` | yes | JSON: `[{"name":"…","email":"…","role":"admin"},{"name":"…","email":"…","role":"employee"}]`, all on the allowed domain |
 | `GOOGLE_PLACES_API_KEY` | no | enables Find clients |
-| `CRON_TOKEN` | recommended | 32+ random characters; enables the maintenance endpoint (404 without it) |
+| `CRON_TOKEN` | optional | 32+ random characters; enables the manual/backup maintenance endpoint (404 without it) |
+| `INTERNAL_SCHEDULER` | no | in-process maintenance sweep every 15 min; default on in production, off otherwise |
 | `PORT` | no | Render sets it; default 8080 |
 | `STAGING_MODE`, `STAGING_SPREADSHEET_ID`, `STAGING_ASSIGNMENT_MINUTES` | **never on Render** | local staging runs only; refused when `RENDER` is set or the staging id equals the production id |
 
@@ -110,14 +111,18 @@ Generate random secrets with: `node -e "console.log(require('crypto').randomByte
 
 The server binds `0.0.0.0:$PORT`. A cold start takes 30–60 s. The public pages appear as soon as the instance is up, and the team area shows a "waking up" notice while it retries.
 
-### External scheduler (free, e.g. cron-job.org)
+### Scheduling
 
-| Job | Request | Every |
-|---|---|---|
-| Keep warm | `GET https://<your-app>.onrender.com/api/health` | 10 minutes |
-| Maintenance (assignment expiry sweep) | `POST https://<your-app>.onrender.com/api/maintenance/run` with header `Authorization: Bearer <CRON_TOKEN>` | 15 minutes |
+The maintenance sweep (returning lapsed lead assignments and sending "expiring soon" notices) runs **inside the server**: once ~10 s after start-up as a catch-up, then every 15 minutes (`INTERNAL_SCHEDULER`, on by default in production). It only runs while the service is awake. A sleeping free instance does nothing until something wakes it, and the catch-up run then processes anything overdue. Expiry is also enforced on every read, so nobody can work a lapsed lead either way; the sweep only makes the "lead expired" notifications arrive on time when nobody is using the app.
 
-Expiry is also checked on every read, so the sweep only makes the founders' "lead expired" notifications arrive promptly when nobody is using the app. If your scheduler cannot send headers, `?token=<CRON_TOKEN>` also works, but URLs can end up in logs, so prefer the header.
+The only external job needed is a free uptime monitor (e.g. UptimeRobot) that keeps the service awake:
+
+| Job | Request | Every | Needed? |
+|---|---|---|---|
+| Keep warm | `GET https://<your-app>.onrender.com/api/health` (UptimeRobot) | 10 minutes | **yes** |
+| Maintenance backup | `POST https://<your-app>.onrender.com/api/maintenance/run` with header `Authorization: Bearer <CRON_TOKEN>` (e.g. cron-job.org) | 15 minutes | optional |
+
+The token-protected endpoint stays as a manual or backup trigger; running it alongside the in-process scheduler is safe (each expiry is recorded, notified and audited exactly once). If a scheduler cannot send headers, `?token=<CRON_TOKEN>` also works, but URLs can end up in logs, so prefer the header.
 
 **Fallback if keep-warm pinging stops being viable:** move the public site to static hosting (Netlify or Cloudflare Pages, from `dist/`, using `public/_redirects`) so visitors never wait, and keep this service for `/team` and `/api` only.
 

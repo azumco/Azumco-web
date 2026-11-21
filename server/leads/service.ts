@@ -125,6 +125,16 @@ export async function notifyExpiringSoon(db: Db): Promise<number> {
   return fresh.length;
 }
 
+/**
+ * The maintenance job: return lapsed assignments and send "expiring soon"
+ * notices. Used by the in-process scheduler and by /api/maintenance/run.
+ */
+export async function runMaintenance(db: Db): Promise<{ expired: number; expiring: number }> {
+  const expired = await sweepExpired(db);
+  const expiring = await notifyExpiringSoon(db);
+  return { expired, expiring };
+}
+
 /** Leads, with any lapsed assignment swept first, so reads always reflect server time. */
 export async function readLeads(db: Db): Promise<Row[]> {
   const now = db.now();
