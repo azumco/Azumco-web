@@ -19,7 +19,8 @@ import { notifyUnqueued } from '../notifications.ts';
 import { assertLeadAccess, isFounder } from '../leads/access.ts';
 import { leadLabel, readLeads } from '../leads/service.ts';
 import { normalizePhone } from '../../shared/phone.ts';
-import { formatDate, fromIst, istDate } from '../../shared/time.ts';
+import { formatDate } from '../../shared/time.ts';
+import { expandRules, planSlots, type AvailRule } from '../../shared/slots.ts';
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 14:30.');
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use a date like 2026-11-30.');
@@ -51,11 +52,6 @@ export const bookingSchema = z.object({
 
 export const rescheduleSchema = z.object({ date: day, start: hhmm });
 
-const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
-const toTime = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-const addDays = (d: string, n: number) => istDate(new Date(fromIst(d).getTime() + n * 86_400_000));
-const weekday = (d: string) => new Date(`${d}T00:00:00Z`).getUTCDay();
-
 export type Slot = {
   founderId: string;
   date: string;
@@ -66,40 +62,35 @@ export type Slot = {
 
 const isActive = (b: Row) => b.status === 'booked';
 type Span = Record<string, unknown>;
-/** Same founder-agnostic time overlap on the same IST day. */
+/** Time overlap on the same IST day. */
 const overlaps = (a: Span, b: Span) =>
   a.date === b.date && String(a.start) < String(b.end) && String(b.start) < String(a.end);
 
-/** Does availability row `a` cover IST day `d`? */
-function coversDay(a: Row, d: string): boolean {
-  if (a.date === d) return true;
-  if (a.repeatWeekly !== 'TRUE' || d < a.date) return false;
-  if (a.repeatUntil && d > a.repeatUntil) return false;
-  return weekday(d) === weekday(a.date);
+export const toRule = (a: Row): AvailRule => ({
+  founderId: a.founderId,
+  date: a.date,
+  start: a.start,
+  end: a.end,
+  slotMinutes: Number(a.slotMinutes) || 30,
+  repeatWeekly: a.repeatWeekly === 'TRUE',
+  repeatUntil: a.repeatUntil,
+});
+
+/** Expand availability into bookable slots (shared rules: past and overlapping slots dropped). */
+export function expandSlots(availability: Row[], bookings: Row[], from: string, days: number, now: Date, founderFilter?: string): Slot[] {
+  return expandRules(availability.map(toRule), from, days, now.getTime(), founderFilter).map((slot) => ({
+    ...slot,
+    booked: bookings.some((b) => b.founderId === slot.founderId && isActive(b) && overlaps(b, { ...slot })),
+  }));
 }
 
-/** Expand availability into bookable slots for [from, from+days), dropping past ones. */
-export function expandSlots(availability: Row[], bookings: Row[], from: string, days: number, now: Date, founderFilter?: string): Slot[] {
-  const out: Slot[] = [];
-  const seen = new Set<string>();
-  for (let i = 0; i < days; i++) {
-    const d = addDays(from, i);
-    for (const a of availability) {
-      if (founderFilter && a.founderId !== founderFilter) continue;
-      if (!coversDay(a, d)) continue;
-      const len = Number(a.slotMinutes) || 30;
-      for (let m = toMin(a.start); m + len <= toMin(a.end); m += len) {
-        const slot = { founderId: a.founderId, date: d, start: toTime(m), end: toTime(m + len) };
-        const key = `${slot.founderId}|${d}|${slot.start}`;
-        if (seen.has(key) || fromIst(d, slot.start) <= now) continue;
-        seen.add(key);
-        const booked = bookings.some((b) => b.founderId === slot.founderId && isActive(b) && overlaps(b, slot));
-        out.push({ ...slot, booked });
-      }
-    }
-  }
-  return out.sort((x, y) => (x.date + x.start + x.founderId).localeCompare(y.date + y.start + y.founderId));
-}
+export const slotBatchSchema = z.object({
+  dates: z.array(day).min(1, 'Choose at least one day.').max(14),
+  start: hhmm,
+  end: hhmm,
+  slotMinutes: z.union([z.literal(20), z.literal(30)]),
+  repeatWeekly: z.boolean().default(false),
+});
 
 export class BookingService {
   constructor(private readonly db: Db) {}
@@ -122,6 +113,47 @@ export class BookingService {
       repeatWeekly: boolCell(input.repeatWeekly),
       repeatUntil: input.repeatUntil,
     }, actor.id);
+  }
+
+  /**
+   * "Add my free slots": one rule per chosen day that gains at least one new
+   * slot. Uses the same planner as the modal's preview, inside the write
+   * queue, so the created count equals the preview.
+   */
+  async addSlots(actor: SessionUser, input: z.infer<typeof slotBatchSchema>) {
+    return this.db.exclusive(async () => {
+      const [state] = await this.db.loadFresh(['Availability']);
+      const plan = planSlots({
+        founderId: actor.id,
+        existing: state.rows.filter((r) => r.founderId === actor.id).map(toRule),
+        dates: input.dates,
+        start: input.start,
+        end: input.end,
+        slotMinutes: input.slotMinutes,
+        nowMs: this.db.now().getTime(),
+      });
+      if (plan.error) throw new HttpError(400, plan.error);
+      await this.db.insertManyUnqueued(
+        'Availability',
+        plan.perDate.map((p) => ({
+          founderId: actor.id,
+          date: p.date,
+          start: input.start,
+          end: input.end,
+          slotMinutes: String(input.slotMinutes),
+          repeatWeekly: boolCell(input.repeatWeekly),
+          repeatUntil: '',
+        })),
+        actor.id,
+      );
+      return { created: plan.total, days: plan.perDate.length };
+    });
+  }
+
+  async setRepeat(actor: SessionUser, id: string, repeatWeekly: boolean) {
+    const row = await this.db.find('Availability', id);
+    if (!row || row.founderId !== actor.id) throw new HttpError(404, 'Not found.');
+    await this.db.update('Availability', id, { repeatWeekly: boolCell(repeatWeekly) }, actor.id);
   }
 
   async removeAvailability(actor: SessionUser, id: string) {
