@@ -7,7 +7,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarX, Check, ChevronLeft, ChevronRight, Store } from 'lucide-react';
 import { addDays, weekday } from '../../../shared/slots';
 import { formatDate, istDate } from '../../../shared/time';
-import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, normalizeMeetLink, type MeetingMode } from '../../../shared/meet';
+import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, MEET_LINK_HELP, normalizeMeetLink, type MeetingMode } from '../../../shared/meet';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { Async, Avatar, Button, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, SPLIT_SUMMARY, StepLabel, colourTone, cx } from '../ui';
@@ -111,16 +111,31 @@ export default function Book({ user }: { user: TeamUser }) {
   const howChips = (step?: number) => (
     <ChipGroup step={step} label="How" options={MODES} value={form.mode} onChange={(v) => v && setForm({ ...form, mode: v })} required />
   );
-  const meetNote = meet && meetFounderId && (
-    founderLink ? (
-      <p className="flex items-center gap-2 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> Uses {nameOf(meetFounderId)}'s Google Meet link.</p>
+  // No founder resolved yet ("Any founder", no time picked): explain, and if
+  // no founder has a link at all, let the booker paste one straight away.
+  const anyFounderHasLink = founders.some((f) => normalizeMeetLink(f.meetLink));
+  const overrideField = (
+    <>
+      <Field label="Meet link for this booking" type="url" inputMode="url" autoComplete="off" placeholder="https://meet.google.com/abc-defg-hij" value={form.meetOverride} onChange={(e) => setForm({ ...form, meetOverride: e.target.value })} />
+      {form.meetOverride.trim() !== '' && override === null ? <p className="text-xs text-warn">{MEET_LINK_ERROR}</p> : <p className="text-xs text-fg-3">{MEET_LINK_HELP}</p>}
+    </>
+  );
+  const meetNote = !meet ? null : !meetFounderId ? (
+    anyFounderHasLink ? (
+      <p className="text-xs text-fg-3">Uses the Google Meet link of the founder you book with. Pick a time to see whose.</p>
     ) : (
       <div className="space-y-3 rounded-2xl border border-warn/40 bg-warn/10 p-4">
-        <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> {nameOf(meetFounderId)} hasn't added a Meet link yet</p>
-        <Field label="Meet link for this booking" type="url" inputMode="url" autoComplete="off" placeholder="https://meet.google.com/abc-defg-hij" value={form.meetOverride} onChange={(e) => setForm({ ...form, meetOverride: e.target.value })} />
-        {form.meetOverride.trim() !== '' && override === null && <p className="text-xs text-warn">{MEET_LINK_ERROR}</p>}
+        <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> No founder has added a Meet link yet</p>
+        {overrideField}
       </div>
     )
+  ) : founderLink ? (
+    <p className="flex items-center gap-2 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> Uses {nameOf(meetFounderId)}'s Google Meet link.</p>
+  ) : (
+    <div className="space-y-3 rounded-2xl border border-warn/40 bg-warn/10 p-4">
+      <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> {nameOf(meetFounderId)} hasn't added a Meet link yet</p>
+      {overrideField}
+    </div>
   );
 
   const fields = (
