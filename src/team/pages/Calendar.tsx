@@ -1,6 +1,8 @@
 // Founders: this week's free slots (each founder in their own colour, booked
 // calls solid), upcoming calls, my free slots, and "Add my free slots".
 
+import MeetActions from '../components/MeetActions';
+import MeetLinkField from '../components/MeetLinkField';
 import { useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, Trash2 } from 'lucide-react';
 import { addDays, coversDay, planSlots, toMin, weekday, type AvailRule } from '../../../shared/slots';
@@ -131,7 +133,11 @@ function BookingDialog({ b, onClose, onChange }: { b: Booking; onClose: () => vo
     <Modal title={b.clientName} subtitle={`${formatDate(b.date)} · ${fmt(b.start)} IST · with ${b.founderName} · ${b.mode}`} open onClose={onClose}>
       <div className="space-y-5">
         {b.phone && <p className="text-sm text-fg-2">Phone {b.phone}</p>}
-        {b.link && <a href={b.link} target="_blank" rel="noreferrer noopener" className="text-sm text-brand">Meeting link</a>}
+        {b.mode === 'Google Meet' && b.link ? (
+          <MeetActions join phone={b.phone} booking={{ date: b.date, start: b.start, end: b.end, clientName: b.clientName, founderName: b.founderName, link: b.link }} />
+        ) : (
+          b.link && <a href={b.link} target="_blank" rel="noreferrer noopener" className="text-sm text-brand">Meeting link</a>
+        )}
         {b.notes && <p className="text-sm text-fg-2">{b.notes}</p>}
         <div>
           <p className="mb-2 text-sm font-medium">Did the call happen?</p>
@@ -168,7 +174,7 @@ export default function Calendar({ user }: { user: TeamUser }) {
 
   const rules = useApi<{ availability: RawRule[] }>('/availability?all=1');
   const bookings = useApi<{ bookings: Booking[] }>('/bookings');
-  const slotsMeta = useApi<{ founders: { id: string; name: string; calendarColor: string }[] }>(`/slots?from=${today}&days=1`);
+  const slotsMeta = useApi<{ founders: { id: string; name: string; calendarColor: string; meetLink: string }[] }>(`/slots?from=${today}&days=1`);
   const [selDay, setSelDay] = useState(today);
   const act = useAction();
 
@@ -203,6 +209,15 @@ export default function Calendar({ user }: { user: TeamUser }) {
         </div>
         <Button onClick={() => setAdding(true)}>Add my free slots</Button>
       </PageTitle>
+
+      {/* Your reusable Google Meet link, used for calls booked with you. */}
+      <Card className="mb-6">
+        <MeetLinkField
+          label="Your Google Meet link (used for calls booked with you)"
+          value={founders.find((f) => f.id === user.id)?.meetLink ?? ''}
+          onSave={async (meetLink) => { const r = await api('PATCH', '/me/meet-link', { meetLink }); void slotsMeta.reload(); return r; }}
+        />
+      </Card>
 
       <ul className="mb-5 flex flex-wrap gap-x-5 gap-y-2 text-sm text-fg-2">
         {founders.map((f) => (

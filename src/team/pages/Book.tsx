@@ -4,17 +4,19 @@
 // prev/next arrows. Founder names and colours come from the user records.
 
 import { useMemo, useState } from 'react';
-import { CalendarX, ChevronLeft, ChevronRight, Store } from 'lucide-react';
+import { AlertTriangle, CalendarX, Check, ChevronLeft, ChevronRight, Store } from 'lucide-react';
 import { addDays, weekday } from '../../../shared/slots';
 import { formatDate, istDate } from '../../../shared/time';
+import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, normalizeMeetLink, type MeetingMode } from '../../../shared/meet';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
-import { Async, Avatar, Button, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, SPLIT_SUMMARY, Segmented, StepLabel, colourTone, cx } from '../ui';
-import { firstName, isFounder, type LeadsResponse, type Slot, type TeamUser } from '../types';
+import { Async, Avatar, Button, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, SPLIT_SUMMARY, StepLabel, colourTone, cx } from '../ui';
+import MeetActions from '../components/MeetActions';
+import { firstName, isFounder, type Booking, type LeadsResponse, type Slot, type TeamUser } from '../types';
 import { shortLabel } from './LeadDetail';
 
 const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MODES = [{ value: 'Zoho Cliq', label: 'Zoho Cliq' }, { value: 'Phone call', label: 'Phone' }, { value: 'In person', label: 'In person' }] as const;
+const MODES: { value: MeetingMode; label: string }[] = [{ value: 'Google Meet', label: 'Google Meet' }, { value: 'Zoho Cliq', label: 'Zoho Cliq' }, { value: 'Phone call', label: 'Phone' }, { value: 'In person', label: 'In person' }];
 const DAYS_AHEAD = 14; // what /slots returns
 const DOT: Record<string, string> = { brand: 'bg-brand', info: 'bg-info', good: 'bg-good', violet: 'bg-violet', warn: 'bg-warn', bad: 'bg-bad' };
 const fmt = (t: string) => {
@@ -24,7 +26,8 @@ const fmt = (t: string) => {
 const whenLabel = (s: Slot) => `${DAY[weekday(s.date)]} ${formatDate(s.date).slice(0, 6)} · ${fmt(s.start)}`;
 const monthLabel = (d: string, short: boolean) => new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { month: short ? 'short' : 'long', year: 'numeric', timeZone: 'UTC' });
 
-interface Founder { id: string; name: string; calendarColor: string }
+interface Founder { id: string; name: string; calendarColor: string; meetLink: string }
+interface Booked { id: string; founderId: string; date: string; start: string; end: string; mode: string; link: string; clientName: string; phone: string }
 
 export default function Book({ user }: { user: TeamUser }) {
   const [leadId, setLeadId] = useState(new URLSearchParams(window.location.search).get('lead') ?? '');
@@ -33,8 +36,11 @@ export default function Book({ user }: { user: TeamUser }) {
   const [week, setWeek] = useState(0);
   const [day, setDay] = useState('');
   const [time, setTime] = useState<Slot | null>(null);
-  const [form, setForm] = useState({ clientName: '', phone: '', mode: 'Zoho Cliq' as (typeof MODES)[number]['value'], link: '', notes: '' });
+  const [form, setForm] = useState({ clientName: '', phone: '', mode: DEFAULT_MEETING_MODE as MeetingMode, link: '', meetOverride: '', notes: '' });
   const [done, setDone] = useState('');
+  const [booked, setBooked] = useState<Booked | null>(null);
+  const [viewing, setViewing] = useState<Booking | null>(null);
+  const myBookings = useApi<{ bookings: Booking[] }>('/bookings');
   const today = istDate();
   const leads = useApi<LeadsResponse>('/leads');
   const slots = useApi<{ slots: Slot[]; founders: Founder[] }>(`/slots?from=${today}&days=${DAYS_AHEAD}`);
@@ -70,15 +76,52 @@ export default function Book({ user }: { user: TeamUser }) {
   const withId = time ? (founder === 'any' ? time.founderId : founder) : founder !== 'any' ? founder : '';
   const notified = withId ? `${nameOf(withId)} is notified right away.` : 'The founder is notified right away.';
 
+  // Google Meet: the link comes from the founder the slot belongs to. With
+  // "Any founder", prefer a founder free at that time who has a link saved
+  // (the server makes the same choice).
+  const meet = form.mode === 'Google Meet';
+  const meetFounderId = (() => {
+    if (!time) return founder !== 'any' ? founder : '';
+    if (founder !== 'any') return founder;
+    const free = (slots.data?.slots ?? []).filter((s) => s.date === time.date && s.start === time.start && !s.booked);
+    return (free.find((s) => founderOf(s.founderId)?.meetLink) ?? free[0] ?? time).founderId;
+  })();
+  const founderLink = normalizeMeetLink(founderOf(meetFounderId)?.meetLink) || '';
+  const override = normalizeMeetLink(form.meetOverride);
+  const needsOverride = meet && Boolean(meetFounderId) && !founderLink;
+  const meetBlocked = needsOverride && !override;
+
   const book = async () => {
     if (!lead || !time) return setError('Choose a lead and a time.');
-    const r = await run(() => api<{ booking: { founderId: string; date: string; start: string } }>('POST', '/bookings', { leadId, founderId: founder === 'any' ? 'any' : time.founderId, date: time.date, start: time.start, ...form }));
+    if (meetBlocked) return setError(`${nameOf(meetFounderId)} hasn't added a Meet link yet. Paste one for this booking.`);
+    const link = meet ? (needsOverride ? override || '' : '') : form.mode === 'Zoho Cliq' ? form.link : '';
+    const { meetOverride: _unused, ...rest } = form;
+    void _unused;
+    const r = await run(() => api<{ booking: Booked }>('POST', '/bookings', { leadId, founderId: founder === 'any' ? 'any' : time.founderId, date: time.date, start: time.start, ...rest, link }));
     void slots.reload();
+    void myBookings.reload();
     if (r) {
       setDone(`Booked with ${nameOf(r.booking.founderId)} on ${formatDate(r.booking.date)} at ${fmt(r.booking.start)}. ${nameOf(r.booking.founderId)} has been notified.`);
+      setBooked(r.booking);
       setTime(null);
+      setForm((f) => ({ ...f, meetOverride: '' }));
     }
   };
+
+  const howChips = (step?: number) => (
+    <ChipGroup step={step} label="How" options={MODES} value={form.mode} onChange={(v) => v && setForm({ ...form, mode: v })} required />
+  );
+  const meetNote = meet && meetFounderId && (
+    founderLink ? (
+      <p className="flex items-center gap-2 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> Uses {nameOf(meetFounderId)}'s Google Meet link.</p>
+    ) : (
+      <div className="space-y-3 rounded-2xl border border-warn/40 bg-warn/10 p-4">
+        <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> {nameOf(meetFounderId)} hasn't added a Meet link yet</p>
+        <Field label="Meet link for this booking" type="url" inputMode="url" autoComplete="off" placeholder="https://meet.google.com/abc-defg-hij" value={form.meetOverride} onChange={(e) => setForm({ ...form, meetOverride: e.target.value })} />
+        {form.meetOverride.trim() !== '' && override === null && <p className="text-xs text-warn">{MEET_LINK_ERROR}</p>}
+      </div>
+    )
+  );
 
   const fields = (
     <>
@@ -88,7 +131,7 @@ export default function Book({ user }: { user: TeamUser }) {
     </>
   );
   const bookButton = (
-    <Button busy={busy} disabled={!lead || !time || !form.clientName} className="w-full" onClick={book}>
+    <Button busy={busy} disabled={!lead || !time || !form.clientName || meetBlocked} className="w-full" onClick={book}>
       {time ? 'Book this call' : lead ? 'Pick a time' : 'Choose a lead first'}
     </Button>
   );
@@ -99,7 +142,14 @@ export default function Book({ user }: { user: TeamUser }) {
         Book a <span className="font-serif font-normal italic tracking-normal text-brand">call</span>
       </h1>
       <p className="mt-1 text-fg-2">Pick a free slot. The founder is notified straight away.</p>
-      {done && <p role="status" className="mt-4 rounded-2xl border border-good/40 bg-good/10 px-4 py-3 text-sm">{done}</p>}
+      {done && (
+        <div role="status" className="mt-4 space-y-4 rounded-3xl border border-good/40 bg-good/10 p-4 sm:p-5">
+          <p className="text-sm">{done}</p>
+          {booked?.mode === 'Google Meet' && booked.link && (
+            <MeetActions join={isFounder(user)} phone={booked.phone} booking={{ date: booked.date, start: booked.start, end: booked.end, clientName: booked.clientName, founderName: founderOf(booked.founderId)?.name ?? '', link: booked.link, leadLabel: lead ? shortLabel(lead) : '' }} />
+          )}
+        </div>
+      )}
 
       <Async state={slots} label="Loading free slots…">
         {() => (
@@ -184,7 +234,8 @@ export default function Book({ user }: { user: TeamUser }) {
 
                   {/* Below 1100px the details follow the picker. */}
                   <div className="space-y-5 min-[1100px]:hidden">
-                    <Segmented step={4} label="How" options={MODES} value={form.mode} onChange={(v) => setForm({ ...form, mode: v })} />
+                    {howChips(4)}
+                    {meetNote}
                     {fields}
                     <ErrorText>{error}</ErrorText>
                     <div className="sticky bottom-16 z-30 rounded-3xl border border-line bg-bg-2 p-4 shadow-lg shadow-black/40 md:static md:shadow-none">
@@ -212,7 +263,8 @@ export default function Book({ user }: { user: TeamUser }) {
                 </div>
               </dl>
               <div className="mt-5 space-y-5">
-                <Segmented label="How" options={MODES} value={form.mode} onChange={(v) => setForm({ ...form, mode: v })} />
+                {howChips()}
+                {meetNote}
                 {fields}
                 <ErrorText>{error}</ErrorText>
                 {bookButton}
@@ -222,6 +274,42 @@ export default function Book({ user }: { user: TeamUser }) {
           </div>
         )}
       </Async>
+
+      {!isFounder(user) && (
+        <Async state={myBookings} label="Loading your booked calls…">
+          {({ bookings }) => {
+            const upcoming = bookings.filter((b) => b.status !== 'cancelled' && b.date >= today).sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+            return upcoming.length === 0 ? null : (
+              <section className="mt-8">
+                <h2 className="mb-3 text-lg font-medium">Your booked calls</h2>
+                <ul className="space-y-2">
+                  {upcoming.map((b) => (
+                    <li key={b.id}>
+                      <button type="button" onClick={() => setViewing(b)} className="flex w-full items-center justify-between gap-3 rounded-2xl border border-line bg-bg-2 px-4 py-3 text-left hover:border-line-2">
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{b.clientName}</span>
+                          <span className="block truncate text-xs text-fg-3">{DAY[weekday(b.date)]} {formatDate(b.date).slice(0, 6)} · {fmt(b.start)} · with {firstName(b.founderName)}</span>
+                        </span>
+                        <span className="shrink-0 text-xs text-fg-2">{b.mode}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          }}
+        </Async>
+      )}
+
+      {viewing && (
+        <Modal title={viewing.clientName} subtitle={`${DAY[weekday(viewing.date)]} ${formatDate(viewing.date)} · ${fmt(viewing.start)} IST · with ${firstName(viewing.founderName)} · ${viewing.mode}`} open onClose={() => setViewing(null)}>
+          {viewing.mode === 'Google Meet' && viewing.link ? (
+            <MeetActions join={isFounder(user)} phone={viewing.phone} booking={{ date: viewing.date, start: viewing.start, end: viewing.end, clientName: viewing.clientName, founderName: viewing.founderName, link: viewing.link }} />
+          ) : (
+            <p className="text-sm text-fg-2">{viewing.link ? <a href={viewing.link} target="_blank" rel="noreferrer noopener" className="text-brand">Meeting link</a> : `No meeting link for a ${viewing.mode.toLowerCase()} call.`}</p>
+          )}
+        </Modal>
+      )}
 
       <Modal title="Which" accent="lead?" open={pickingLead} onClose={() => setPickingLead(false)}>
         <Async state={leads}>

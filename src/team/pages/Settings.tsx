@@ -1,6 +1,7 @@
 // Super admin: team, Google Places limit and pause, lead timer, commission,
 // and the audit log.
 
+import MeetLinkField from '../components/MeetLinkField';
 import { useEffect, useState } from 'react';
 import { Check, Copy, Lock, Plus } from 'lucide-react';
 import { formatDateTime } from '../../../shared/time';
@@ -10,7 +11,7 @@ import { Async, Avatar, BoxInput, Button, Card, CardHeader, ChipGroup, ErrorText
 import ChangePassword from './ChangePassword';
 import type { PlacesUsage, TeamUser } from '../types';
 
-interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; updatedAt: string }
+interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; meetLink: string; updatedAt: string }
 interface SettingsData {
   settings: { placesMonthlyCap: number; placesPaused: boolean; commissionQualifiedFee: number; commissionOneTimePct: number; commissionMonthlyPct: number; assignmentWindowHours: number; contactedRule: 'any_attempt' | 'reached_only' };
   usage: PlacesUsage;
@@ -74,6 +75,9 @@ function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => vo
           <Button size="sm" variant="secondary" busy={busy} disabled={jobTitle.trim() === u.jobTitle} onClick={() => patch({ jobTitle: jobTitle.trim() }, false)}>Save</Button>
         </div>
         <Toggle label="Can receive leads" hint="Appears in every assign-to list and earns commission." checked={u.canReceiveLeads} onChange={(v) => patch({ canReceiveLeads: v })} />
+        {u.role !== 'employee' && (
+          <MeetLinkField value={u.meetLink ?? ''} onSave={async (meetLink) => { const r = await api('PATCH', `/users/${u.id}`, { meetLink, expectedUpdatedAt: u.updatedAt }); onSaved(); return r; }} />
+        )}
         {u.role !== 'super_admin' && (
           <Toggle label="Can sign in" hint={u.active ? 'Turning this off signs them out and returns their leads to Unclaimed.' : 'Deactivated.'} checked={u.active} onChange={(v) => patch({ active: v })} />
         )}
