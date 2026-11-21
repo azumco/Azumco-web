@@ -172,4 +172,8 @@ export class GoogleSheetsBackend implements SheetsBackend {
     if (!sheetIds.length) return;
     await this.call('POST', ':batchUpdate', { requests: sheetIds.map((sheetId) => ({ deleteSheet: { sheetId } })) });
   }
+
+  async duplicateTab(sheetId: number, newTitle: string): Promise<void> {
+    await this.call('POST', ':batchUpdate', { requests: [{ duplicateSheet: { sourceSheetId: sheetId, newSheetName: newTitle } }] });
+  }
 }

@@ -215,7 +215,9 @@ export class Db {
       void _i; void _c; void _u; void _b;
       // Two edits in the same millisecond would leave updatedAt unchanged and
       // defeat the concurrency check; nudge forward so every write changes it.
-      const stamp = now > before.updatedAt ? now : new Date(Date.parse(before.updatedAt) + 1).toISOString();
+      // (A hand-edited, unparseable updatedAt is simply replaced by now.)
+      const prev = Date.parse(before.updatedAt);
+      const stamp = Number.isNaN(prev) || now > before.updatedAt ? now : new Date(prev + 1).toISOString();
       const after = { ...before, ...safe, updatedAt: stamp, updatedBy: actorId } as Row;
       results.push({ before, after, rowNumber: state.rowNumbers.get(id)! });
     }

@@ -1,6 +1,8 @@
-// One-time seed data (expenses, project, goals). Each set is inserted once,
-// guarded by a Meta row, so restarts never duplicate it. Fictional nothing:
-// these are the company's own records from the brief — no customer data.
+// One-time REAL seed data (expenses, the Zyvia project, the registration
+// milestone, goals). Each set is inserted once, guarded by a Meta row, so
+// restarts never duplicate it. No demo or fictitious data lives here — local
+// demo data is only in server/dev/demo.ts, behind an explicit flag.
+// Leads, bookings, availability, contributions and commission start empty.
 
 import type { Db } from './sheets/db.ts';
 import { log } from './lib/log.ts';
@@ -27,10 +29,10 @@ export async function seed(db: Db): Promise<void> {
     await db.exclusive(async () => {
       await db.insertManyUnqueued('Expenses', [
         { date: '2026-08-17', item: 'Company SIM card', amount: '150', paidBy: p('Ayan'), project: 'General', repaid: 'FALSE' },
-        { date: '2026-11-14', item: 'Domain purchase', amount: '1295', paidBy: COMPANY_FUND, project: 'Zevia', repaid: 'FALSE' },
-        { date: '2026-11-14', item: 'SIM recharge', amount: '99', paidBy: COMPANY_FUND, project: 'Zevia', repaid: 'FALSE' },
+        { date: '2026-11-14', item: 'Domain purchase', amount: '1295', paidBy: COMPANY_FUND, project: 'Zyvia', repaid: 'FALSE' },
+        { date: '2026-11-14', item: 'SIM recharge', amount: '99', paidBy: COMPANY_FUND, project: 'Zyvia', repaid: 'FALSE' },
       ], 'system');
-      await db.insertManyUnqueued('Projects', [{ name: 'Zevia', dealTotal: '8000', received: '4000', status: 'Active' }], 'system');
+      await db.insertManyUnqueued('Projects', [{ name: 'Zyvia', dealTotal: '8000', received: '4000', status: 'Active' }], 'system');
     });
   });
 
@@ -55,18 +57,37 @@ export async function seed(db: Db): Promise<void> {
     });
   });
 
+  // Owners update their own statuses from here on.
   await once(db, 'seed:goals:v1', async () => {
     const zeeshan = p('Zeeshan');
     await db.exclusive(() =>
       db.insertManyUnqueued('Goals', [
-        { goal: 'Zevia Website', task: 'Build the website', owner: p('Ayan'), support: '', start: '2026-11-16', deadline: '2026-11-30', status: 'Not Started' },
-        { goal: 'Zevia Website', task: '100% testing + rework', owner: p('Ayan'), support: `${p('Yameen')}; ${zeeshan}`, start: '2026-11-16', deadline: '2026-12-05', status: 'Not Started' },
-        { goal: 'Gym Client', task: 'Close the deal with gym owner', owner: p('Yameen'), support: '', start: '', deadline: '2026-11-30', status: 'Not Started' },
-        { goal: 'Company Setup', task: 'Talk to CA/CS about registration steps + cost', owner: p('Yameen'), support: '', start: '', deadline: '2026-11-30', status: 'Not Started' },
-        { goal: 'Azumco', task: 'Fix Azumco website', owner: zeeshan, support: '', start: '', deadline: '2026-11-30', status: 'Not Started' },
-        { goal: 'Azumco', task: 'Create domain emails', owner: zeeshan, support: '', start: '', deadline: '2026-11-30', status: 'Not Started' },
-        { goal: 'Gym Software', task: 'Build gym software after deal is confirmed', owner: zeeshan, support: '', start: '', deadline: '', status: 'On Hold' },
+        { goal: 'Zyvia Website', task: 'Build the website', owner: p('Ayan'), support: '', start: '2026-11-16', deadline: '2026-11-30', status: 'Not Started', note: '' },
+        { goal: 'Zyvia Website', task: '100% testing + rework', owner: p('Ayan'), support: `${p('Yameen')}; ${zeeshan}`, start: '', deadline: '2026-12-05', status: 'Not Started', note: '' },
+        { goal: 'Gym Client', task: 'Close the deal with the gym owner', owner: p('Yameen'), support: '', start: '', deadline: '2026-11-30', status: 'Not Started', note: '' },
+        { goal: 'Company Setup', task: 'Talk to CA/CS about registration steps and cost', owner: p('Yameen'), support: '', start: '', deadline: '2026-11-30', status: 'Done', note: 'Quote received 18 Nov' },
+        { goal: 'Azumco', task: 'Fix the Azumco website', owner: zeeshan, support: '', start: '', deadline: '2026-11-30', status: 'Not Started', note: '' },
+        { goal: 'Azumco', task: 'Create domain emails', owner: zeeshan, support: '', start: '', deadline: '2026-11-30', status: 'Done', note: '' },
+        { goal: 'Gym Software', task: 'Build gym software after the deal is confirmed', owner: zeeshan, support: '', start: '', deadline: '', status: 'On Hold', note: 'Waiting for the gym deal' },
       ], 'system'),
     );
+  });
+
+  // The client is "Zyvia" (earlier drafts said "Zevia"). Rename any existing
+  // references once, in every tab that can hold a project or goal name.
+  await once(db, 'migrate:zyvia:v1', async () => {
+    await db.exclusive(async () => {
+      for (const [tab, cols] of [['Projects', ['name']], ['Expenses', ['project', 'item']], ['Goals', ['goal', 'task', 'note']]] as const) {
+        const [state] = await db.loadFresh([tab]);
+        const changes = state.rows
+          .map((r) => {
+            const patch: Record<string, string> = {};
+            for (const c of cols) if (/Zevia/.test(r[c] ?? '')) patch[c] = r[c].replace(/Zevia/g, 'Zyvia');
+            return { id: r.id, patch };
+          })
+          .filter((c) => Object.keys(c.patch).length);
+        await db.updateManyUnqueued(tab, changes, 'system');
+      }
+    });
   });
 }

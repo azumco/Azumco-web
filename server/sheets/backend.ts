@@ -25,6 +25,8 @@ export interface SheetsBackend {
   deleteRow(sheetId: number, rowNumber: number): Promise<void>;
   /** Delete whole tabs. Used only by the integration test to clean up its __test_ tabs. */
   deleteTabs(sheetIds: number[]): Promise<void>;
+  /** Copy a tab under a new title (backups before data clean-up). */
+  duplicateTab(sheetId: number, newTitle: string): Promise<void>;
 }
 
 /** Column number (1-based) to letters: 1 → A, 27 → AA. */
@@ -92,6 +94,12 @@ export class MemoryBackend implements SheetsBackend {
 
   async deleteTabs(sheetIds: number[]): Promise<void> {
     for (const [title, t] of this.tabs) if (sheetIds.includes(t.sheetId)) this.tabs.delete(title);
+  }
+
+  async duplicateTab(sheetId: number, newTitle: string): Promise<void> {
+    const src = [...this.tabs.values()].find((t) => t.sheetId === sheetId);
+    if (!src) throw new Error(`No tab ${sheetId}`);
+    this.tabs.set(newTitle, { sheetId: this.nextId++, grid: structuredClone(src.grid) });
   }
 
   private require(title: string) {

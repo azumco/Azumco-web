@@ -47,7 +47,7 @@ export const TABS = {
   Notifications: ['userId', 'type', 'message', 'refId', 'readAt'],
   Expenses: ['date', 'item', 'amount', 'paidBy', 'project', 'repaid'],
   Projects: ['name', 'dealTotal', 'received', 'status'],
-  Goals: ['goal', 'task', 'owner', 'support', 'start', 'deadline', 'status'],
+  Goals: ['goal', 'task', 'owner', 'support', 'start', 'deadline', 'status', 'note'],
   Milestones: ['name', 'provider', 'gstIncluded', 'targetOverride', 'notes'],
   /** amountWithoutGst: the amount when GST registration is not included ('' = same). */
   MilestoneItems: [
