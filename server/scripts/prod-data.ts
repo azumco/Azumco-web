@@ -14,10 +14,10 @@ import { a1Tab, columnLetter, type Grid } from '../sheets/backend.ts';
 import { TABS } from '../sheets/schema.ts';
 
 const DEMO_PATTERNS: RegExp[] = [
-  /\bDemo\b/i, // "Suzanne Demo", "Ayan Demo", "Zeeshan Demo"
+  /\bDemo\b/i, // e.g. "<First name> Demo" rows from early local demos
   /@example\.(test|com)\b/i,
   /\bdemo[._]/i, // demo.owner@…, demo_place_…
-  /\b(Test Owner|Owner Test|Staff Test|Staff One|Admin One|Ayan Test)\b/,
+  /\b(Test Owner|Owner Test|Staff Test|Staff One|Admin One|Founder Test)\b/,
   /\b(Iron Fit Gym|Caf[eé] Brewtopia|Iron Pulse Gym|FitZone Studio|Muscle Hub|Core Strength|Peak Fitness|Urban Gym|Flex Arena|Glow Salon|Sharma Dental|Spice Route|Dental Care Clinic|Zqx Fitness|Deal Co|Assigned Co|Other Co|Manual Co|PowerHouse Fitness|Iron Core Gym|Muscle Factory|Alpha Gym)\b/i,
   /ChIJ_fake_place_|demo_place_/,
 ];

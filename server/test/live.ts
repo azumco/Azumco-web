@@ -54,7 +54,7 @@ async function main() {
     SUPERADMIN_NAME: 'Test Owner',
     SUPERADMIN_INITIAL_PASSWORD: 'live-test-Passw0rd',
     TEAM_USERS: JSON.stringify([
-      { name: 'Ayan Test', email: 'test.ayan@azumco.com', role: 'admin' },
+      { name: 'Founder Test', email: 'test.founder@azumco.com', role: 'admin' },
       { name: 'Staff Test', email: 'test.staff@azumco.com', role: 'employee' },
     ]),
   });

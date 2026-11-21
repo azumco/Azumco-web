@@ -1,14 +1,22 @@
-// Team area root: session, sign-in gate, forced password change, and the two
-// shells — founders get a left sidebar (a menu at ≤768px), the employee gets a
-// mobile-first layout with a bottom tab bar. Hiding things here is convenience
-// only; every rule is enforced again by the API.
+// Team area root: session, sign-in gate, forced password change, and the
+// two shells. Founder and team-member navigation never mix.
+//
+// Breakpoints (both roles):
+//   < 768px     mobile: top bar + bottom tab bar
+//   768–1023px  top bar + menu
+//   ≥ 1024px    left sidebar
+//
+// Hiding things here is convenience only; every rule is enforced by the API.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Bell, CalendarDays, Clock, Home as HomeIcon, IndianRupee, List, LogOut, Menu, Search, Settings as SettingsIcon, Target, Users as UsersIcon, Wallet, X } from 'lucide-react';
+import {
+  Bell, CalendarDays, Clock, Home as HomeIcon, IndianRupee, List, LogOut, Menu, MoreHorizontal, Search, Settings as SettingsIcon, Target,
+  Users as UsersIcon, Wallet, X,
+} from 'lucide-react';
 import { api, setCsrf } from './api';
 import { navigate, usePath } from './router';
-import { Avatar, Loading, WakingBanner, cx } from './ui';
-import { isFounder, type Role, type Session, type TeamUser } from './types';
+import { Avatar, Loading, WakingBanner, colourTone, cx } from './ui';
+import { isFounder, type LeadsResponse, type Role, type Session, type TeamUser } from './types';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
 import Home from './pages/Home';
@@ -20,10 +28,13 @@ import Calendar from './pages/Calendar';
 import Book from './pages/Book';
 import Money from './pages/Money';
 import Goals from './pages/Goals';
+import MyGoals from './pages/MyGoals';
 import Settings from './pages/Settings';
 import Queue from './pages/Queue';
+import FollowUps from './pages/FollowUps';
 import Earnings from './pages/Earnings';
 import Notifications from './pages/Notifications';
+import More from './pages/More';
 import './team.css';
 
 export type { Role, Session, TeamUser };
@@ -47,7 +58,7 @@ function useNoIndex() {
   }, []);
 }
 
-const link = (path: string) => ({
+export const link = (path: string) => ({
   href: path,
   onClick: (e: React.MouseEvent) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -56,9 +67,11 @@ const link = (path: string) => ({
   },
 });
 
-const ROLE_LABEL: Record<Role, string> = { super_admin: 'Super admin', admin: 'Founder', employee: 'Team' };
+export const ROLE_LABEL: Record<Role, string> = { super_admin: 'Super admin', admin: 'Founder', employee: 'Team member' };
 
-const FOUNDER_NAV = [
+type NavItem = { path: string; label: string; icon: typeof Bell; superOnly?: boolean; count?: number };
+
+const FOUNDER_NAV: NavItem[] = [
   { path: '/team', label: 'Home', icon: HomeIcon },
   { path: '/team/leads', label: 'Leads', icon: UsersIcon },
   { path: '/team/find', label: 'Find clients', icon: Search },
@@ -67,15 +80,22 @@ const FOUNDER_NAV = [
   { path: '/team/goals', label: 'Goals', icon: Target },
   { path: '/team/settings', label: 'Settings', icon: SettingsIcon, superOnly: true },
 ];
-
-const EMPLOYEE_TABS = [
+const FOUNDER_TABS: NavItem[] = [
+  { path: '/team', label: 'Home', icon: HomeIcon },
+  { path: '/team/leads', label: 'Leads', icon: UsersIcon },
+  { path: '/team/find', label: 'Find', icon: Search },
+  { path: '/team/calendar', label: 'Calendar', icon: CalendarDays },
+  { path: '/team/more', label: 'More', icon: MoreHorizontal },
+];
+const MEMBER_NAV: NavItem[] = [
   { path: '/team', label: 'Queue', icon: List },
   { path: '/team/followups', label: 'Follow-ups', icon: Clock },
   { path: '/team/book', label: 'Book', icon: CalendarDays },
+  { path: '/team/goals', label: 'Goals', icon: Target },
   { path: '/team/earnings', label: 'Earnings', icon: IndianRupee },
 ];
 
-function founderPage(path: string, user: TeamUser): ReactNode {
+function founderPage(path: string, user: TeamUser, unread: number, onSignOut: () => void): ReactNode {
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
   if (lead) return <LeadDetail id={lead[1]} user={user} />;
   switch (path) {
@@ -91,19 +111,20 @@ function founderPage(path: string, user: TeamUser): ReactNode {
     case '/team/goals': return <Goals user={user} />;
     case '/team/settings': return user.role === 'super_admin' ? <Settings me={user} /> : null;
     case '/team/notifications': return <Notifications />;
+    case '/team/more': return <More user={user} unread={unread} onSignOut={onSignOut} />;
     default: return null;
   }
 }
 
-function employeePage(path: string, user: TeamUser): ReactNode {
+function memberPage(path: string, user: TeamUser): ReactNode {
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
   if (lead) return <LeadDetail id={lead[1]} user={user} />;
   switch (path) {
-    case '/team': return <Queue user={user} mode="call" />;
-    case '/team/followups': return <Queue user={user} mode="followups" />;
+    case '/team': return <Queue user={user} />;
+    case '/team/followups': return <FollowUps user={user} />;
     case '/team/book': return <Book user={user} />;
     case '/team/earnings': return <Earnings />;
-    case '/team/goals': return <Goals user={user} />;
+    case '/team/goals': return <MyGoals user={user} />;
     case '/team/notifications': return <Notifications />;
     default: return null;
   }
@@ -113,9 +134,7 @@ function NotFound() {
   return (
     <div className="py-20 text-center">
       <p className="text-fg-2">That page is not available.</p>
-      <a {...link('/team')} className="mt-4 inline-flex min-h-11 items-center text-sm text-brand">
-        Go to your home page
-      </a>
+      <a {...link('/team')} className="mt-4 inline-flex min-h-11 items-center text-sm text-brand">Go to your home page</a>
     </div>
   );
 }
@@ -135,6 +154,28 @@ function useUnread(path: string) {
   return unread;
 }
 
+/** Queue / follow-up counts for the team member's sidebar. */
+function useMemberCounts(path: string) {
+  const [counts, setCounts] = useState({ queue: 0, followUps: 0 });
+  useEffect(() => {
+    let alive = true;
+    api<LeadsResponse>('GET', '/leads')
+      .then((r) => {
+        if (!alive) return;
+        const now = Date.parse(r.serverNow);
+        setCounts({
+          queue: r.leads.filter((l) => !l.contacted && (!l.expiresAt || Date.parse(l.expiresAt) > now)).length,
+          followUps: r.leads.filter((l) => l.followUp === 'today' || l.followUp === 'overdue').length,
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+  return counts;
+}
+
 function Wordmark() {
   return (
     <a {...link('/team')} className="flex items-center gap-2.5" aria-label="Azumco team home">
@@ -147,35 +188,29 @@ function Wordmark() {
 
 function BellLink({ unread }: { unread: number }) {
   return (
-    <a
-      {...link('/team/notifications')}
-      aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
-      className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg-2 hover:text-fg"
-    >
+    <a {...link('/team/notifications')} aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'} className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg-2 hover:text-fg">
       <Bell className="h-4 w-4" />
       {unread > 0 && <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1 text-[11px] font-medium text-bg">{unread > 9 ? '9+' : unread}</span>}
     </a>
   );
 }
 
-function FounderShell({ user, path, onSignOut, children }: { user: TeamUser; path: string; onSignOut: () => void; children: ReactNode }) {
+function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: TeamUser; path: string; onSignOut: () => void; nav: NavItem[]; tabs: NavItem[]; unread: number; children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const unread = useUnread(path);
   useEffect(() => setOpen(false), [path]);
-  const items = FOUNDER_NAV.filter((n) => !n.superOnly || user.role === 'super_admin');
-  const active = (p: string) => (p === '/team' ? path === '/team' : path === p || path.startsWith(`${p}/`) || (p === '/team/money' && (path === '/team/milestone' || path === '/team/expenses')));
+  const founder = isFounder(user);
+  const active = (p: string) =>
+    p === '/team' ? path === '/team' : path === p || path.startsWith(`${p}/`) || (p === '/team/money' && ['/team/milestone', '/team/expenses'].includes(path)) || (p === '/team/more' && ['/team/money', '/team/goals', '/team/settings', '/team/notifications'].includes(path));
 
-  const nav = (
+  const navList = (
     <nav aria-label="Team" className="flex flex-col gap-1">
-      {items.map((n) => (
-        <a
-          key={n.path}
-          {...link(n.path)}
-          aria-current={active(n.path) ? 'page' : undefined}
-          className={cx('flex min-h-11 items-center gap-3 rounded-2xl px-3.5 text-[15px] transition-colors', active(n.path) ? 'bg-bg-3 text-fg' : 'text-fg-2 hover:text-fg')}
-        >
+      {nav.map((n) => (
+        <a key={n.path} {...link(n.path)} aria-current={active(n.path) ? 'page' : undefined} className={cx('flex min-h-11 items-center gap-3 rounded-2xl px-3.5 text-[15px] transition-colors', active(n.path) ? 'bg-bg-3 text-fg' : 'text-fg-2 hover:text-fg')}>
           <n.icon className={cx('h-4.5 w-4.5', active(n.path) && 'text-brand')} />
-          {n.label}
+          <span className="flex-1">{n.label}</span>
+          {n.count !== undefined && n.count > 0 && (
+            <span className={cx('min-w-6 rounded-full px-2 text-center text-xs tabular-nums', active(n.path) ? 'bg-brand text-bg' : 'bg-bg-3 text-fg-2')}>{n.count}</span>
+          )}
         </a>
       ))}
     </nav>
@@ -183,10 +218,10 @@ function FounderShell({ user, path, onSignOut, children }: { user: TeamUser; pat
 
   const userCard = (
     <div className="flex items-center gap-3 rounded-2xl border border-line bg-bg-2 p-3">
-      <Avatar name={user.name} />
+      <Avatar name={user.name} tone={founder ? 'brand' : 'violet'} />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm text-fg">{user.name}</p>
-        <p className="text-xs text-fg-3">{ROLE_LABEL[user.role]}</p>
+        <p className="truncate text-xs text-fg-3">{user.jobTitle || ROLE_LABEL[user.role]}</p>
       </div>
       <button type="button" onClick={onSignOut} aria-label="Sign out" title="Sign out" className="inline-flex h-10 w-10 items-center justify-center rounded-full text-fg-3 hover:text-fg">
         <LogOut className="h-4 w-4" />
@@ -195,13 +230,12 @@ function FounderShell({ user, path, onSignOut, children }: { user: TeamUser; pat
   );
 
   return (
-    <div className="min-[769px]:flex">
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between border-r border-line px-4 py-7 min-[769px]:flex">
+    <div className="lg:flex">
+      {/* ≥1024: sidebar */}
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between border-r border-line px-4 py-7 lg:flex">
         <div>
-          <div className="mb-8 pl-2">
-            <Wordmark />
-          </div>
-          {nav}
+          <div className="mb-8 pl-2"><Wordmark /></div>
+          {navList}
         </div>
         <div className="space-y-2">
           <a {...link('/team/notifications')} className="flex min-h-11 items-center gap-3 rounded-2xl px-3.5 text-sm text-fg-2 hover:text-fg">
@@ -211,59 +245,36 @@ function FounderShell({ user, path, onSignOut, children }: { user: TeamUser; pat
         </div>
       </aside>
 
-      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-5 backdrop-blur-xl min-[769px]:hidden">
+      {/* <1024: top bar (menu button only at 768–1023) */}
+      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-5 backdrop-blur-xl lg:hidden">
         <Wordmark />
         <div className="flex items-center gap-2">
           <BellLink unread={unread} />
-          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label={open ? 'Close menu' : 'Open menu'} className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg">
+          {founder && (
+            <a {...link('/team/more')} aria-label="Your account" className="md:hidden">
+              <Avatar name={user.name} tone={colourTone('brand')} />
+            </a>
+          )}
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label={open ? 'Close menu' : 'Open menu'} className="hidden h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg md:inline-flex">
             {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
         </div>
       </header>
       {open && (
-        <div className="border-b border-line bg-bg px-5 py-4 min-[769px]:hidden">
-          {nav}
+        <div className="hidden border-b border-line bg-bg px-5 py-4 md:block lg:hidden">
+          {navList}
           <div className="mt-4">{userCard}</div>
         </div>
       )}
 
-      <main className="min-w-0 flex-1 px-5 pb-20 pt-8 sm:px-8 min-[769px]:px-10 min-[769px]:pt-11">
+      <main className={cx('min-w-0 flex-1 px-5 pt-6 sm:px-8 md:pt-8 lg:px-10 lg:pt-11', 'pb-28 md:pb-20')}>
         <div className="mx-auto max-w-[1120px]">{children}</div>
       </main>
-    </div>
-  );
-}
 
-function EmployeeShell({ path, onSignOut, children }: { path: string; onSignOut: () => void; children: ReactNode }) {
-  const unread = useUnread(path);
-  const active = (p: string) => (p === '/team' ? path === '/team' : path === p);
-  return (
-    <div className="min-h-screen pb-24">
-      <header className="sticky top-0 z-50 border-b border-line bg-bg/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-2xl items-center justify-between px-5">
-          <Wordmark />
-          <nav aria-label="Workspace" className="hidden items-center gap-1 md:flex">
-            {[...EMPLOYEE_TABS, { path: '/team/goals', label: 'Goals', icon: Target }].map((t) => (
-              <a key={t.path} {...link(t.path)} aria-current={active(t.path) ? 'page' : undefined} className={cx('inline-flex min-h-11 items-center rounded-full px-3 text-sm', active(t.path) ? 'bg-bg-3 text-fg' : 'text-fg-2 hover:text-fg')}>
-                {t.label}
-              </a>
-            ))}
-          </nav>
-          <div className="flex items-center gap-2">
-            <a {...link('/team/goals')} aria-label="Goals" className={cx('inline-flex h-11 w-11 items-center justify-center rounded-full border border-line-2 md:hidden', active('/team/goals') ? 'text-fg' : 'text-fg-2')}>
-              <Target className="h-4 w-4" />
-            </a>
-            <BellLink unread={unread} />
-            <button type="button" onClick={onSignOut} aria-label="Sign out" className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg-2 hover:text-fg">
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-2xl px-5 pt-6">{children}</main>
-      <nav aria-label="Workspace tabs" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-        <div className="grid grid-cols-4">
-          {EMPLOYEE_TABS.map((t) => (
+      {/* <768: bottom tab bar */}
+      <nav aria-label="Tabs" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
+        <div className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
+          {tabs.map((t) => (
             <a key={t.path} {...link(t.path)} aria-current={active(t.path) ? 'page' : undefined} className={cx('flex min-h-16 flex-col items-center justify-center gap-1 text-[11px]', active(t.path) ? 'text-brand' : 'text-fg-2')}>
               <t.icon className="h-5 w-5" />
               {t.label}
@@ -272,6 +283,27 @@ function EmployeeShell({ path, onSignOut, children }: { path: string; onSignOut:
         </div>
       </nav>
     </div>
+  );
+}
+
+function FounderShell({ user, path, onSignOut }: { user: TeamUser; path: string; onSignOut: () => void }) {
+  const unread = useUnread(path);
+  const nav = FOUNDER_NAV.filter((n) => !n.superOnly || user.role === 'super_admin');
+  return (
+    <Shell user={user} path={path} onSignOut={onSignOut} nav={nav} tabs={FOUNDER_TABS} unread={unread}>
+      {founderPage(path, user, unread, onSignOut) ?? <NotFound />}
+    </Shell>
+  );
+}
+
+function MemberShell({ user, path, onSignOut }: { user: TeamUser; path: string; onSignOut: () => void }) {
+  const unread = useUnread(path);
+  const counts = useMemberCounts(path);
+  const nav = MEMBER_NAV.map((n) => (n.path === '/team' ? { ...n, count: counts.queue } : n.path === '/team/followups' ? { ...n, count: counts.followUps } : n));
+  return (
+    <Shell user={user} path={path} onSignOut={onSignOut} nav={nav} tabs={MEMBER_NAV} unread={unread}>
+      {memberPage(path, user) ?? <NotFound />}
+    </Shell>
   );
 }
 
@@ -298,7 +330,7 @@ export default function TeamApp() {
   };
 
   let body: ReactNode;
-  if (session === undefined) body = <Loading />;
+  if (session === undefined) body = <Loading label="Starting up…" />;
   else if (session === null) body = <Login onSignedIn={accept} />;
   else if (session.user.mustChangePassword) {
     body = (
@@ -306,19 +338,8 @@ export default function TeamApp() {
         <ChangePassword forced onChanged={accept} />
       </div>
     );
-  } else if (isFounder(session.user)) {
-    body = (
-      <FounderShell user={session.user} path={path} onSignOut={signOut}>
-        {founderPage(path, session.user) ?? <NotFound />}
-      </FounderShell>
-    );
-  } else {
-    body = (
-      <EmployeeShell path={path} onSignOut={signOut}>
-        {employeePage(path, session.user) ?? <NotFound />}
-      </EmployeeShell>
-    );
-  }
+  } else if (isFounder(session.user)) body = <FounderShell user={session.user} path={path} onSignOut={signOut} />;
+  else body = <MemberShell user={session.user} path={path} onSignOut={signOut} />;
 
   return (
     <div className="team-root min-h-screen bg-bg text-fg">

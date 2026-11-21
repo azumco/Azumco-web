@@ -8,6 +8,7 @@ export interface TeamUser {
   name: string;
   role: Role;
   mustChangePassword: boolean;
+  jobTitle: string;
 }
 
 export interface Session {
@@ -31,6 +32,8 @@ export interface Lead {
   contactPerson: string;
   phone: string;
   city: string;
+  state: string;
+  lastNote: string;
   websiteOrInstagram: string;
   source: string;
   serviceInterest: string;
@@ -120,4 +123,9 @@ export interface TeamMember {
   id: string;
   name: string;
   role: Role;
+  jobTitle: string;
+  canReceiveLeads: boolean;
+  calendarColor: string;
 }
+
+export const firstName = (name: string) => (name || '').trim().split(/\s+/)[0] ?? '';

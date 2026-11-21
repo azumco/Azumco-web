@@ -43,7 +43,7 @@ export default function FindClients() {
   const team = useApi<{ users: TeamMember[] }>('/team');
   const [form, setForm] = useState({ type: '', state: DEFAULT_STATE, city: '', limit: 10 });
   const [results, setResults] = useState<Result[] | null>(null);
-  const [searched, setSearched] = useState<{ type: string; city: string; searchedAt: string } | null>(null);
+  const [searched, setSearched] = useState<{ type: string; city: string; state: string; searchedAt: string } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [noWebsite, setNoWebsite] = useState(false);
   const [hideHave, setHideHave] = useState(false);
@@ -53,7 +53,8 @@ export default function FindClients() {
   const search = useAction();
   const importing = useAction();
 
-  const employees = (team.data?.users ?? []).filter((u) => u.role === 'employee');
+  // Only people who can receive leads appear in "Assign to".
+  const employees = (team.data?.users ?? []).filter((u) => u.canReceiveLeads);
   const defaultHours = String(status.data?.defaultWindowHours ?? 24);
 
   const runSearch = async (e: FormEvent) => {
@@ -68,7 +69,7 @@ export default function FindClients() {
     void status.reload();
     if (r) {
       setResults(r.results);
-      setSearched({ type: form.type, city: form.city, searchedAt: r.searchedAt });
+      setSearched({ type: form.type, city: form.city, state: form.state, searchedAt: r.searchedAt });
       setPicked(new Set(r.results.filter((x) => !x.alreadyInLeads).map((x) => x.placeId)));
       if (!assignTo && employees[0]) setAssignTo(employees[0].id);
     }
@@ -82,6 +83,7 @@ export default function FindClients() {
       api<{ imported: number; skipped: number }>('POST', '/places/import', {
         category: shortType(searched.type),
         city: searched.city,
+        state: searched.state,
         searchedAt: searched.searchedAt,
         placeIds: [...picked],
         ...(assignTo ? { assignTo, windowHours: Number(hours || defaultHours) } : {}),

@@ -85,7 +85,7 @@ function AddLead({ open, onClose, onSaved }: { open: boolean; onClose: () => voi
         <Field label="Website / Instagram" value={f.websiteOrInstagram} onChange={set('websiteOrInstagram')} />
         <ChipGroup label="Source" options={MANUAL_SOURCES} value={f.source as (typeof MANUAL_SOURCES)[number] | ''} onChange={(v) => setF({ ...f, source: v })} />
         <Field label="Service interest" value={f.serviceInterest} onChange={set('serviceInterest')} />
-        <ChipGroup label="Assign to" options={[{ value: '', label: 'Nobody yet' }, ...(team.data?.users ?? []).map((u) => ({ value: u.id, label: u.name.split(' ')[0] }))]} value={assignTo} onChange={setAssignTo} required />
+        <ChipGroup label="Assign to" options={[{ value: '', label: 'Nobody yet' }, ...(team.data?.users ?? []).filter((u) => u.canReceiveLeads).map((u) => ({ value: u.id, label: u.name.split(' ')[0] }))]} value={assignTo} onChange={setAssignTo} required />
         {assignTo && (
           <ChipGroup
             label="Deadline"

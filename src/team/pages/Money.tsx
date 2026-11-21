@@ -189,7 +189,24 @@ export default function Money({ user }: { user: TeamUser }) {
                     {expenses.length === 0 ? (
                       <Empty title="No expenses yet" />
                     ) : (
-                      <div className="-mx-1 overflow-x-auto">
+                      <>
+                      <ul className="sm:hidden">
+                        {expenses.map((e) => (
+                          <li key={e.id}>
+                            <button type="button" onClick={() => setExpense(e)} className="flex w-full items-start justify-between gap-3 border-t border-line py-3 text-left first:border-0">
+                              <span className="min-w-0">
+                                <span className="block truncate">{e.item}</span>
+                                <span className="block text-xs text-fg-3">{shortDate(e.date)} · {e.paidBy === COMPANY_FUND ? 'company' : `paid by ${first(e.paidBy)}`}</span>
+                              </span>
+                              <span className="flex shrink-0 flex-col items-end gap-1">
+                                <span className="tabular-nums">{formatInr(e.amount)}</span>
+                                {e.paidBy === COMPANY_FUND ? <Tag tone="good">Paid</Tag> : e.repaid ? <Tag>Repaid</Tag> : <Tag tone="bad">Owe {first(e.paidBy)}</Tag>}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="-mx-1 hidden overflow-x-auto sm:block">
                         <table className="w-full min-w-[520px] text-left text-sm">
                           <thead>
                             <tr className="text-[11px] uppercase tracking-[0.14em] text-fg-3">
@@ -209,6 +226,7 @@ export default function Money({ user }: { user: TeamUser }) {
                           </tbody>
                         </table>
                       </div>
+                      </>
                     )}
                   </Card>
 
@@ -287,7 +305,7 @@ export default function Money({ user }: { user: TeamUser }) {
                     if (!m) return <Card><p className="text-sm text-fg-3">No milestone set up.</p></Card>;
                     const n = m.numbers;
                     return (
-                      <Card className="h-full">
+                      <Card className="order-first h-full lg:order-none">
                         <div className="flex items-center justify-between">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-fg-3">Milestone</p>
                           {isSuper && <button type="button" onClick={() => setEditingM(true)} className="inline-flex min-h-11 items-center gap-1 text-xs text-fg-3 hover:text-fg"><Pencil className="h-3.5 w-3.5" /> Edit</button>}

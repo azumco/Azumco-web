@@ -1,20 +1,20 @@
-// One lead. Employee: the "Log a call" screen. Founders: the same, plus
+// One lead. The panel (contact + Log a call + history) is shared by the lead
+// page and the laptop Queue/Follow-ups side panel. Founders additionally get
 // edit, assign, commission and delete.
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowLeft, CalendarPlus, ChevronRight, ExternalLink, MapPin, MessageCircle, Phone, Trash2, UserCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CalendarPlus, Check, ChevronRight, ExternalLink, MapPin, MessageCircle, Phone, Trash2 } from 'lucide-react';
 import { CALL_OUTCOMES, DEAL_TYPES, LEAD_STATUSES, NEEDS, NEXT_STEPS, RATINGS } from '../../../shared/rules';
 import { formatDate, formatDateTime, formatInr } from '../../../shared/time';
 import { ApiError, api } from '../api';
 import { useAction, useApi, useServerNow } from '../hooks';
 import { navigate } from '../router';
 import {
-  Async, Button, Card, ChipGroup, Countdown, ErrorText, Field, GoogleAttribution, Loading, Modal, MultiChips, QuickDate, SearchableSelect, Segmented,
-  StatusPill, Toggle, cx,
+  Async, Button, Card, ChipGroup, Countdown, ErrorText, Field, Loading, Modal, MultiChips, QuickDate, SearchableSelect, Segmented, StatusPill, Toggle, cx,
 } from '../ui';
 import AssignDialog from '../components/AssignDialog';
 import { leadSubline } from './Leads';
-import { isFounder, type CallEntry, type Lead, type TeamUser } from '../types';
+import { firstName, isFounder, type CallEntry, type Lead, type TeamUser } from '../types';
 
 interface Detail {
   lead: Lead;
@@ -24,14 +24,15 @@ interface Detail {
 
 const FIFTEEN_MIN = 15 * 60_000;
 const waLink = (phone: string) => `https://wa.me/${phone.replace(/\D/g, '')}`;
+export const shortLabel = (l: Lead) => l.label.replace(/ · Google lead$/, '');
 
 // ─── Contact (live from Google, or our confirmed record) ──────────────────
 
-function LiveContact({ lead, auto }: { lead: Lead; auto: boolean }) {
+function LiveContact({ lead, auto, wide }: { lead: Lead; auto: boolean; wide?: boolean }) {
   const [contact, setContact] = useState<{ name: string; address: string; phone: string; website: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const started = useRef(false);
+  const started = useRef('');
 
   const load = async () => {
     setLoading(true);
@@ -47,96 +48,156 @@ function LiveContact({ lead, auto }: { lead: Lead; auto: boolean }) {
   };
 
   useEffect(() => {
-    // One lookup per visit; the ref stops React's dev double-run paying twice.
-    if (auto && !started.current) {
-      started.current = true;
+    // One lookup per lead opened; the ref also stops React's dev double-run paying twice.
+    if (auto && started.current !== lead.id) {
+      started.current = lead.id;
+      setContact(null);
       void load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auto]);
+  }, [auto, lead.id]);
 
   return (
-    <Card>
-      <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.16em] text-fg-3">
-        <span>From Google Maps</span>
-        <span className="normal-case tracking-normal">not saved</span>
-      </div>
+    <div className="rounded-3xl border border-line bg-bg-3/40 p-5">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-fg-3">From Google Maps · not saved</p>
       {loading && <Loading label="Looking up on Google…" />}
       {!loading && error && <div className="mt-4"><ErrorText>{error}</ErrorText></div>}
       {!loading && !contact && !error && !auto && (
-        <div className="mt-4">
+        <div className="mt-3">
           <p className="text-sm text-fg-2">Look up the live listing. Each lookup counts toward this month's Google limit.</p>
           <Button variant="secondary" size="sm" className="mt-4" onClick={load}>Show contact</Button>
         </div>
       )}
       {contact && !loading && (
-        <div className="mt-3">
-          <p className="text-2xl font-medium tracking-[-0.02em]">{contact.name || 'Name not listed'}</p>
-          {contact.address && <p className="mt-2 flex items-start gap-2 text-sm text-fg-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" />{contact.address}</p>}
-          {contact.phone ? <p className="mt-3 text-xl tabular-nums">{contact.phone}</p> : <p className="mt-3 text-sm text-fg-3">No phone number listed on Google.</p>}
+        <div className={cx('mt-2', wide && 'sm:flex sm:items-start sm:justify-between sm:gap-6')}>
+          <div className="min-w-0">
+            <p className="text-2xl font-medium tracking-[-0.02em]">{contact.name || 'Name not listed'}</p>
+            {contact.address && <p className="mt-1.5 flex items-start gap-2 text-sm text-fg-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" />{contact.address}</p>}
+            {contact.phone ? <p className="mt-2 text-xl tabular-nums">{contact.phone}</p> : <p className="mt-2 text-sm text-fg-3">No phone number listed on Google.</p>}
+            {contact.website && <a href={contact.website} target="_blank" rel="noreferrer noopener" className="mt-1 inline-flex min-h-11 items-center gap-2 text-sm text-fg-2 hover:text-fg"><ExternalLink className="h-4 w-4" /> Website</a>}
+          </div>
           {contact.phone && (
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className={cx('mt-4 grid grid-cols-2 gap-2', wide && 'sm:mt-0 sm:w-44 sm:grid-cols-1')}>
               <a href={`tel:${contact.phone.replace(/\s/g, '')}`} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand text-sm font-medium text-bg"><Phone className="h-4 w-4" /> Call now</a>
               <a href={waLink(contact.phone)} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-line-2 text-sm"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
             </div>
           )}
-          {contact.website && <a href={contact.website} target="_blank" rel="noreferrer noopener" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm text-fg-2 hover:text-fg"><ExternalLink className="h-4 w-4" /> Website</a>}
-          <div className="mt-2"><GoogleAttribution /></div>
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
 function StoredContact({ lead }: { lead: Lead }) {
   return (
-    <Card>
+    <div className="rounded-3xl border border-line bg-bg-3/40 p-5">
       <p className="text-[11px] uppercase tracking-[0.16em] text-fg-3">Contact{lead.phoneSource === 'outreach_confirmed' && ' · confirmed'}</p>
-      <p className="mt-3 text-2xl font-medium tracking-[-0.02em]">{lead.businessName || lead.label}</p>
-      <div className="mt-2 space-y-1 text-sm text-fg-2">
+      <p className="mt-2 text-2xl font-medium tracking-[-0.02em]">{lead.businessName || shortLabel(lead)}</p>
+      <div className="mt-1.5 space-y-1 text-sm text-fg-2">
         {lead.contactPerson && <p>{lead.contactPerson}</p>}
         {lead.city && <p className="flex items-center gap-2"><MapPin className="h-4 w-4" />{lead.city}</p>}
         {lead.websiteOrInstagram && <p className="break-all">{lead.websiteOrInstagram}</p>}
       </div>
       {lead.phone && (
         <>
-          <p className="mt-3 text-xl tabular-nums">{lead.phone}</p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          <p className="mt-2 text-xl tabular-nums">{lead.phone}</p>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:max-w-sm">
             <a href={`tel:${lead.phone}`} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand text-sm font-medium text-bg"><Phone className="h-4 w-4" /> Call now</a>
             <a href={waLink(lead.phone)} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-line-2 text-sm"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
           </div>
         </>
       )}
-    </Card>
+    </div>
+  );
+}
+
+// ─── Confirm contact (first-party; never prefilled from Google) ───────────
+
+export function ConfirmContact({ lead, open, onClose, onDone }: { lead: Lead; open: boolean; onClose: () => void; onDone: () => void }) {
+  const [f, setF] = useState({ businessName: '', contactPerson: '', phone: '' });
+  const [check, setCheck] = useState<{ e164: string | null; duplicateOf: string | null } | null>(null);
+  const { busy, error, run } = useAction();
+  useEffect(() => {
+    if (!open) return;
+    setF({ businessName: '', contactPerson: '', phone: '' });
+    setCheck(null);
+  }, [open, lead.id]);
+
+  // Check the number as it's typed (debounced): E.164 form and duplicates.
+  useEffect(() => {
+    if (!open || f.phone.replace(/\D/g, '').length < 8) {
+      setCheck(null);
+      return;
+    }
+    const t = setTimeout(() => {
+      api<{ e164: string | null; duplicateOf: string | null }>('POST', `/leads/${lead.id}/phone-check`, { phone: f.phone }).then(setCheck).catch(() => setCheck(null));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [f.phone, open, lead.id]);
+
+  const save = async () => {
+    if (await run(() => api('POST', `/leads/${lead.id}/confirm`, f))) {
+      onClose();
+      onDone();
+    }
+  };
+
+  return (
+    <Modal title="Confirm" accent="contact" subtitle="You reached them. Save their details as our own lead." open={open} onClose={onClose}>
+      <div className="space-y-5">
+        <Field label="Business name" required autoComplete="off" value={f.businessName} onChange={(e) => setF({ ...f, businessName: e.target.value })} />
+        <Field label="Contact person" autoComplete="off" value={f.contactPerson} onChange={(e) => setF({ ...f, contactPerson: e.target.value })} />
+        <div>
+          <Field label="Phone you reached them on" type="tel" inputMode="tel" autoComplete="off" required value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+          {check?.e164 && !check.duplicateOf && <p className="mt-1.5 flex items-center gap-1.5 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> Saved as {check.e164}</p>}
+          {check && !check.e164 && <p className="mt-1.5 text-xs text-warn">That doesn't look like a valid number. Use 10 digits, or +country code.</p>}
+          {check?.duplicateOf && (
+            <p role="alert" className="mt-2 flex items-start gap-2 rounded-2xl border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> This number is already in your leads as “{check.duplicateOf}”.
+            </p>
+          )}
+        </div>
+        <p className="text-xs text-fg-3">Type what you confirmed on the call. Google's details are not copied automatically.</p>
+        <ErrorText>{error}</ErrorText>
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button busy={busy} disabled={!f.businessName.trim() || !f.phone.trim() || Boolean(check?.duplicateOf)} onClick={save}>Save lead</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
 // ─── Log a call ───────────────────────────────────────────────────────────
 
-function LogCall({ lead, msLeft, onLogged }: { lead: Lead; msLeft: number | null; onLogged: () => void }) {
+function LogCall({ lead, msLeft, onLogged, wide }: { lead: Lead; msLeft: number | null; onLogged: () => void; wide?: boolean }) {
   const [outcome, setOutcome] = useState('');
   const [rating, setRating] = useState<string>(lead.rating);
-  const [needs, setNeeds] = useState<string[]>(lead.need ? lead.need.split(',').map((s) => s.trim()).filter((s) => (NEEDS as readonly string[]).includes(s)) : []);
-  const [nextStep, setNextStep] = useState<string>((NEXT_STEPS as readonly string[]).includes(lead.nextStep) ? lead.nextStep : '');
+  const [needs, setNeeds] = useState<string[]>([]);
+  const [nextStep, setNextStep] = useState<string>('');
   const [followUpDate, setFollowUpDate] = useState(lead.followUpDate);
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState('');
   const { busy, error, setError, run } = useAction();
 
+  // Reset when another lead is selected in the side panel.
+  useEffect(() => {
+    setOutcome('');
+    setRating(lead.rating);
+    setNeeds(lead.need ? lead.need.split(',').map((s) => s.trim()).filter((s) => (NEEDS as readonly string[]).includes(s)) : []);
+    setNextStep((NEXT_STEPS as readonly string[]).includes(lead.nextStep) ? lead.nextStep : '');
+    setFollowUpDate(lead.followUpDate);
+    setNote('');
+    setDone('');
+    setError('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead.id]);
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!outcome) return setError('Choose how the call went.');
-    const r = await run(() =>
-      api<{ timerStopped: boolean }>('POST', `/leads/${lead.id}/calls`, {
-        outcome,
-        rating,
-        need: needs.join(', '),
-        nextStep,
-        followUpDate,
-        note,
-      }),
-    );
+    const r = await run(() => api<{ timerStopped: boolean }>('POST', `/leads/${lead.id}/calls`, { outcome, rating, need: needs.join(', '), nextStep, followUpDate, note }));
     if (r) {
       setDone(r.timerStopped ? 'Call saved. This lead is yours now — the timer has stopped.' : 'Call saved.');
       setOutcome('');
@@ -149,64 +210,42 @@ function LogCall({ lead, msLeft, onLogged }: { lead: Lead; msLeft: number | null
   return (
     <form onSubmit={submit} className="space-y-6">
       {msLeft !== null && msLeft > 0 && msLeft < FIFTEEN_MIN && <ErrorText>Under 15 minutes left. Save the call now or this lead goes back to the founders.</ErrorText>}
-      <ChipGroup label="How did the call go?" options={CALL_OUTCOMES.map((o) => o.value)} value={outcome} onChange={setOutcome} />
-      <Segmented
-        label="Rate this lead"
-        options={RATINGS.map((r) => ({ value: r, label: <><span className={cx('h-2 w-2 rounded-full', r === 'Good' ? 'bg-good' : r === 'Intermediate' ? 'bg-warn' : 'bg-bad')} />{r}</> }))}
-        value={rating as (typeof RATINGS)[number]}
-        onChange={setRating}
-      />
-      <MultiChips label="What do they need?" options={NEEDS} value={needs as (typeof NEEDS)[number][]} onChange={setNeeds} />
-      <ChipGroup label="Next step" options={NEXT_STEPS} value={nextStep as (typeof NEXT_STEPS)[number] | ''} onChange={setNextStep} />
-      <QuickDate label="Follow-up" value={followUpDate} onChange={setFollowUpDate} />
-      <Field label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Owner is free after 5 PM…" />
-
-      {lead.needsLiveLookup && (
-        <button type="button" onClick={() => setConfirming(true)} className="flex w-full items-center gap-4 rounded-3xl border border-brand/40 bg-brand/5 p-4 text-left">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand"><UserCheck className="h-4 w-4" /></span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium text-fg">Reached the owner?</span>
-            <span className="block text-xs text-fg-2">Save their name & number</span>
-          </span>
-          <ChevronRight className="h-4 w-4 text-fg-3" />
-        </button>
-      )}
-
+      <div className={cx('grid gap-6', wide && 'xl:grid-cols-2')}>
+        <div className="space-y-6">
+          <ChipGroup label="How did the call go?" options={CALL_OUTCOMES.map((o) => o.value)} value={outcome} onChange={setOutcome} />
+          <Segmented
+            label="Rate this lead"
+            options={RATINGS.map((r) => ({ value: r, label: <><span className={cx('h-2 w-2 rounded-full', r === 'Good' ? 'bg-good' : r === 'Intermediate' ? 'bg-warn' : 'bg-bad')} />{r}</> }))}
+            value={rating as (typeof RATINGS)[number]}
+            onChange={setRating}
+          />
+          <MultiChips label="What do they need?" options={NEEDS} value={needs as (typeof NEEDS)[number][]} onChange={setNeeds} />
+        </div>
+        <div className="space-y-6">
+          <ChipGroup label="Next step" options={NEXT_STEPS} value={nextStep as (typeof NEXT_STEPS)[number] | ''} onChange={setNextStep} />
+          <QuickDate label="Follow-up" value={followUpDate} onChange={setFollowUpDate} />
+          <Field label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Free after 5 PM…" />
+        </div>
+      </div>
+      <div className={cx('flex flex-col gap-3', wide && 'xl:flex-row xl:items-stretch')}>
+        {lead.needsLiveLookup && (
+          <button type="button" onClick={() => setConfirming(true)} className="flex flex-1 items-center gap-4 rounded-3xl border border-brand/40 bg-brand/5 p-4 text-left">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand"><Check className="h-4 w-4" /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-fg">Reached the right person? Confirm contact</span>
+              <span className="block text-xs text-fg-2">Saves their name & number for good</span>
+            </span>
+            <ChevronRight className="h-4 w-4 text-fg-3" />
+          </button>
+        )}
+        <div className={cx('sticky bottom-16 z-30 -mx-5 bg-gradient-to-t from-bg from-60% to-transparent px-5 pb-3 pt-8 md:static md:m-0 md:bg-none md:p-0', wide && 'xl:w-40 xl:self-center')}>
+          <Button type="submit" busy={busy} className="w-full shadow-lg shadow-black/40 md:shadow-none">Save call</Button>
+        </div>
+      </div>
       <ErrorText>{error}</ErrorText>
       {done && !error && <p role="status" className="text-sm text-good">{done}</p>}
-      <div className="sticky bottom-16 z-30 -mx-5 bg-gradient-to-t from-bg from-60% to-transparent px-5 pb-3 pt-8 md:static md:m-0 md:bg-none md:p-0">
-        <Button type="submit" busy={busy} className="w-full shadow-lg shadow-black/40 md:shadow-none">Save call</Button>
-      </div>
       <ConfirmContact lead={lead} open={confirming} onClose={() => setConfirming(false)} onDone={onLogged} />
     </form>
-  );
-}
-
-/** First-party contact typed by the caller — deliberately never prefilled from Google. */
-function ConfirmContact({ lead, open, onClose, onDone }: { lead: Lead; open: boolean; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState({ businessName: '', contactPerson: '', phone: '' });
-  const { busy, error, run } = useAction();
-  return (
-    <Modal title="Reached the" accent="owner?" subtitle="Type what they confirmed. This becomes our own record and Google lookups stop." open={open} onClose={onClose}>
-      <div className="space-y-5">
-        <Field label="Business name" required value={f.businessName} onChange={(e) => setF({ ...f, businessName: e.target.value })} />
-        <Field label="Contact person" value={f.contactPerson} onChange={(e) => setF({ ...f, contactPerson: e.target.value })} />
-        <Field label="Phone you reached them on" type="tel" inputMode="tel" required value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-        <ErrorText>{error}</ErrorText>
-        <Button
-          busy={busy}
-          className="w-full"
-          onClick={async () => {
-            if (await run(() => api('POST', `/leads/${lead.id}/confirm`, f))) {
-              onClose();
-              onDone();
-            }
-          }}
-        >
-          Save contact
-        </Button>
-      </div>
-    </Modal>
   );
 }
 
@@ -273,9 +312,9 @@ function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; found
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────
+// ─── Panel (shared by the page and the laptop side panel) ─────────────────
 
-export default function LeadDetail({ id, user }: { id: string; user: TeamUser }) {
+export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user: TeamUser; embedded?: boolean; onChanged?: () => void }) {
   const state = useApi<Detail>(`/leads/${id}`);
   const now = useServerNow(state.data?.serverNow, 10_000);
   const founder = isFounder(user);
@@ -284,92 +323,101 @@ export default function LeadDetail({ id, user }: { id: string; user: TeamUser })
   const [confirmDelete, setConfirmDelete] = useState(false);
   const action = useAction();
   const back = founder ? '/team/leads' : '/team';
+  const reload = () => {
+    void state.reload();
+    onChanged?.();
+  };
 
   return (
-    <div className="mx-auto max-w-2xl">
-      <Async state={state} label="Loading lead…">
-        {({ lead, calls }) => {
-          const msLeft = lead.expiresAt ? Date.parse(lead.expiresAt) - now : null;
-          return (
-            <div className="space-y-6">
-              <div className="flex items-start gap-3">
+    <Async state={state} label="Loading lead…">
+      {({ lead, calls }) => {
+        const msLeft = lead.expiresAt ? Date.parse(lead.expiresAt) - now : null;
+        return (
+          <div className="space-y-6">
+            <div className="flex items-start gap-3">
+              {!embedded && (
                 <a href={back} onClick={(e) => { e.preventDefault(); navigate(back); }} aria-label="Back" className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line-2 text-fg-2 hover:text-fg">
                   <ArrowLeft className="h-4 w-4" />
                 </a>
-                <div className="min-w-0 flex-1">
-                  <h1 className="truncate text-xl font-medium tracking-[-0.02em] sm:text-2xl">{lead.label.replace(/ · Google lead$/, '')}</h1>
-                  <p className="text-xs text-fg-3">{lead.timerRunning ? 'Disappears unless you log a call' : leadSubline(lead)}</p>
-                </div>
-                {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
-              </div>
-
-              {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} /> : <StoredContact lead={lead} />}
-
-              <LogCall lead={lead} msLeft={lead.timerRunning ? msLeft : null} onLogged={state.reload} />
-
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" size="sm" onClick={() => navigate(`/team/book?lead=${lead.id}`)}><CalendarPlus className="h-4 w-4" /> Book discovery call</Button>
-                <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>Edit details</Button>
-                {founder && <Button variant="secondary" size="sm" onClick={() => setAssigning(true)}>{lead.assigneeName ? `Reassign (${lead.assigneeName.split(' ')[0]})` : 'Assign'}</Button>}
-              </div>
-
-              {founder && (
-                <Card>
-                  <h2 className="text-sm font-medium">Deal & commission</h2>
-                  <p className="mt-2 text-sm text-fg-2">
-                    {lead.dealValue ? `${formatInr(lead.dealValue)} · ${lead.dealType || 'One-time'} · client ${lead.clientPaid ? 'paid' : 'not paid yet'}` : 'No deal value yet.'}
-                  </p>
-                  <p className="mt-1 text-sm text-fg-2">
-                    Commission earned {formatInr(lead.commission)} · paid {formatInr(lead.commissionPaid)}
-                    {lead.commissionPaidAt && ` on ${formatDate(lead.commissionPaidAt)}`}
-                  </p>
-                  {lead.commission > lead.commissionPaid && lead.assigneeName && (
-                    <Button variant="secondary" size="sm" className="mt-4" busy={action.busy} onClick={async () => (await action.run(() => api('POST', `/leads/${lead.id}/commission-paid`))) && state.reload()}>
-                      Mark {formatInr(lead.commission - lead.commissionPaid)} paid to {lead.assigneeName.split(' ')[0]}
-                    </Button>
-                  )}
-                  <div className="mt-3"><ErrorText>{action.error}</ErrorText></div>
-                </Card>
               )}
-
-              <Card>
-                <h2 className="text-sm font-medium">Call log</h2>
-                {calls.length === 0 ? (
-                  <p className="mt-3 text-sm text-fg-3">No calls logged yet.</p>
-                ) : (
-                  <ol className="mt-4 space-y-4">
-                    {calls.map((c) => (
-                      <li key={c.id} className="border-l-2 border-line-2 pl-4">
-                        <p className="text-sm text-fg">{c.outcome}</p>
-                        <p className="text-xs text-fg-3">{formatDateTime(c.at)} · {c.by}</p>
-                        {c.note && <p className="mt-1 text-sm text-fg-2">{c.note}</p>}
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </Card>
-
-              {founder && (
-                <div>
-                  {!confirmDelete ? (
-                    <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}><Trash2 className="h-4 w-4" /> Delete lead</Button>
-                  ) : (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-sm text-fg-2">Delete this lead permanently?</span>
-                      <Button size="sm" busy={action.busy} onClick={async () => (await action.run(() => api('DELETE', `/leads/${lead.id}`))) && navigate('/team/leads')}>Delete</Button>
-                      <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <EditLead lead={lead} founder={founder} open={editing} onClose={() => setEditing(false)} onSaved={state.reload} />
-              {founder && <AssignDialog leadIds={[lead.id]} open={assigning} onClose={() => setAssigning(false)} onDone={state.reload} requireDeadline={lead.isGoogle} />}
+              <div className="min-w-0 flex-1">
+                <h1 className={cx('truncate font-medium tracking-[-0.02em]', embedded ? 'text-2xl' : 'text-xl sm:text-2xl')}>{shortLabel(lead)}</h1>
+                <p className="text-xs text-fg-3">{lead.timerRunning ? 'Disappears unless you log a call' : leadSubline(lead)}</p>
+              </div>
+              {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
             </div>
-          );
-        }}
-      </Async>
-    </div>
+
+            {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} wide={embedded} /> : <StoredContact lead={lead} />}
+
+            <LogCall lead={lead} msLeft={lead.timerRunning ? msLeft : null} onLogged={reload} wide={embedded} />
+
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={() => navigate(`/team/book?lead=${lead.id}`)}><CalendarPlus className="h-4 w-4" /> Book discovery call</Button>
+              <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>Edit details</Button>
+              {founder && <Button variant="secondary" size="sm" onClick={() => setAssigning(true)}>{lead.assigneeName ? `Reassign (${firstName(lead.assigneeName)})` : 'Assign'}</Button>}
+            </div>
+
+            {founder && (
+              <Card>
+                <h2 className="text-sm font-medium">Deal & commission</h2>
+                <p className="mt-2 text-sm text-fg-2">{lead.dealValue ? `${formatInr(lead.dealValue)} · ${lead.dealType || 'One-time'} · client ${lead.clientPaid ? 'paid' : 'not paid yet'}` : 'No deal value yet.'}</p>
+                <p className="mt-1 text-sm text-fg-2">
+                  Commission earned {formatInr(lead.commission)} · paid {formatInr(lead.commissionPaid)}
+                  {lead.commissionPaidAt && ` on ${formatDate(lead.commissionPaidAt)}`}
+                </p>
+                {lead.commission > lead.commissionPaid && lead.assigneeName && (
+                  <Button variant="secondary" size="sm" className="mt-4" busy={action.busy} onClick={async () => (await action.run(() => api('POST', `/leads/${lead.id}/commission-paid`))) && reload()}>
+                    Mark {formatInr(lead.commission - lead.commissionPaid)} paid to {firstName(lead.assigneeName)}
+                  </Button>
+                )}
+                <div className="mt-3"><ErrorText>{action.error}</ErrorText></div>
+              </Card>
+            )}
+
+            <Card>
+              <h2 className="text-sm font-medium">Call log</h2>
+              {calls.length === 0 ? (
+                <p className="mt-3 text-sm text-fg-3">No calls logged yet.</p>
+              ) : (
+                <ol className="mt-4 space-y-4">
+                  {calls.map((c) => (
+                    <li key={c.id} className="border-l-2 border-line-2 pl-4">
+                      <p className="text-sm text-fg">{c.outcome}</p>
+                      <p className="text-xs text-fg-3">{formatDateTime(c.at)} · {c.by}</p>
+                      {c.note && <p className="mt-1 text-sm text-fg-2">{c.note}</p>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Card>
+
+            {founder && (
+              <div>
+                {!confirmDelete ? (
+                  <Button variant="danger" size="sm" onClick={() => setConfirmDelete(true)}><Trash2 className="h-4 w-4" /> Delete lead</Button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-fg-2">Delete this lead permanently?</span>
+                    <Button size="sm" busy={action.busy} onClick={async () => (await action.run(() => api('DELETE', `/leads/${lead.id}`))) && navigate('/team/leads')}>Delete</Button>
+                    <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <EditLead lead={lead} founder={founder} open={editing} onClose={() => setEditing(false)} onSaved={reload} />
+            {founder && <AssignDialog leadIds={[lead.id]} open={assigning} onClose={() => setAssigning(false)} onDone={reload} requireDeadline={lead.isGoogle} />}
+          </div>
+        );
+      }}
+    </Async>
   );
 }
 
+export default function LeadDetail({ id, user }: { id: string; user: TeamUser }) {
+  return (
+    <div className="mx-auto max-w-2xl">
+      <LeadPanel id={id} user={user} />
+    </div>
+  );
+}

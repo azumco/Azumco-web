@@ -6,11 +6,11 @@ import { Check, Copy, Lock, Plus } from 'lucide-react';
 import { formatDateTime } from '../../../shared/time';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
-import { Async, Avatar, BoxInput, Button, Card, CardHeader, ChipGroup, ErrorText, Modal, PageTitle, ProgressBar, Segmented, Tag, Toggle, cx, type TagTone } from '../ui';
+import { Async, Avatar, BoxInput, Button, Card, CardHeader, ChipGroup, ErrorText, Field, Modal, PageTitle, ProgressBar, Segmented, Tag, Toggle, colourTone, cx, type TagTone } from '../ui';
 import ChangePassword from './ChangePassword';
 import type { PlacesUsage, TeamUser } from '../types';
 
-interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; updatedAt: string }
+interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; updatedAt: string }
 interface SettingsData {
   settings: { placesMonthlyCap: number; placesPaused: boolean; commissionQualifiedFee: number; commissionOneTimePct: number; commissionMonthlyPct: number; assignmentWindowHours: number; contactedRule: 'any_attempt' | 'reached_only' };
   usage: PlacesUsage;
@@ -21,7 +21,7 @@ interface AuditEntry { id: string; at: string; action: string; before: string; a
 const ROLE: Record<ManagedUser['role'], { label: string; tone: TagTone }> = {
   super_admin: { label: 'Super admin', tone: 'brand' },
   admin: { label: 'Admin', tone: 'info' },
-  employee: { label: 'Employee', tone: 'violet' },
+  employee: { label: 'Team member', tone: 'violet' },
 };
 
 function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => void; onSaved: () => void }) {
@@ -37,16 +37,17 @@ function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => vo
       onSaved();
     }
   };
-  const patch = async (body: { role?: string; active?: boolean }) => {
+  const [jobTitle, setJobTitle] = useState(u.jobTitle);
+  const patch = async (body: { role?: string; active?: boolean; jobTitle?: string; canReceiveLeads?: boolean }, close = true) => {
     if (await run(() => api('PATCH', `/users/${u.id}`, { ...body, expectedUpdatedAt: u.updatedAt }))) {
       onSaved();
-      onClose();
+      if (close) onClose();
     }
   };
   return (
     <Modal title={u.name} subtitle={u.email} open onClose={onClose}>
       <div className="space-y-6">
-        <div>
+        {u.role !== 'super_admin' && <div>
           <p className="mb-2 text-sm font-medium">{u.hasPassword ? 'Reset password' : 'Create password'}</p>
           {issued ? (
             <div className="rounded-2xl border border-brand/40 bg-brand/5 p-4">
@@ -64,10 +65,43 @@ function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => vo
               <Button size="sm" busy={busy} onClick={issue}>{typed.trim() ? 'Set' : 'Generate'}</Button>
             </div>
           )}
+        </div>}
+        {u.role !== 'super_admin' && (
+          <Segmented label="Role" options={[{ value: 'admin', label: 'Founder (admin)' }, { value: 'employee', label: 'Team member' }]} value={u.role === 'employee' ? 'employee' : 'admin'} onChange={(v) => v !== u.role && patch({ role: v })} />
+        )}
+        <div className="flex items-end gap-2">
+          <Field label="Job title" placeholder="e.g. Lead caller, Developer" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} className="flex-1" />
+          <Button size="sm" variant="secondary" busy={busy} disabled={jobTitle.trim() === u.jobTitle} onClick={() => patch({ jobTitle: jobTitle.trim() }, false)}>Save</Button>
         </div>
-        <Segmented label="Role" options={[{ value: 'admin', label: 'Admin' }, { value: 'employee', label: 'Employee' }]} value={u.role === 'employee' ? 'employee' : 'admin'} onChange={(v) => v !== u.role && patch({ role: v })} />
-        <Toggle label="Can sign in" hint={u.active ? 'Turning this off signs them out and returns their leads to Unclaimed.' : 'Deactivated.'} checked={u.active} onChange={(v) => patch({ active: v })} />
+        <Toggle label="Can receive leads" hint="Appears in every assign-to list and earns commission." checked={u.canReceiveLeads} onChange={(v) => patch({ canReceiveLeads: v })} />
+        {u.role !== 'super_admin' && (
+          <Toggle label="Can sign in" hint={u.active ? 'Turning this off signs them out and returns their leads to Unclaimed.' : 'Deactivated.'} checked={u.active} onChange={(v) => patch({ active: v })} />
+        )}
         <ErrorText>{error}</ErrorText>
+      </div>
+    </Modal>
+  );
+}
+
+function AddTeammate({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({ name: '', email: '', role: 'employee' as 'admin' | 'employee', jobTitle: '', canReceiveLeads: true });
+  const { busy, error, run } = useAction();
+  const save = async () => {
+    if (await run(() => api('POST', '/users', f))) {
+      onSaved();
+      onClose();
+    }
+  };
+  return (
+    <Modal title="Add" accent="teammate" subtitle="They get no password until you create one. Only @azumco.com emails." open onClose={onClose}>
+      <div className="space-y-5">
+        <Field label="Full name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+        <Field label="Email" type="email" required placeholder="name@azumco.com" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
+        <Segmented label="Role" options={[{ value: 'employee', label: 'Team member' }, { value: 'admin', label: 'Founder (admin)' }]} value={f.role} onChange={(v) => setF({ ...f, role: v, canReceiveLeads: v === 'employee' })} />
+        <Field label="Job title" placeholder="e.g. Lead caller, Developer" value={f.jobTitle} onChange={(e) => setF({ ...f, jobTitle: e.target.value })} />
+        <Toggle label="Can receive leads" hint="Appears in assign-to lists and earns commission." checked={f.canReceiveLeads} onChange={(v) => setF({ ...f, canReceiveLeads: v })} />
+        <ErrorText>{error}</ErrorText>
+        <Button busy={busy} className="w-full" disabled={!f.name.trim() || !f.email.trim()} onClick={save}>Add teammate</Button>
       </div>
     </Modal>
   );
@@ -88,16 +122,17 @@ function Team({ me }: { me: TeamUser }) {
               const self = u.id === me.id;
               return (
                 <li key={u.id} className="flex flex-wrap items-center gap-3 border-t border-line py-3 first:border-0">
-                  <Avatar name={u.name} tone={ROLE[u.role].tone} />
+                  <Avatar name={u.name} tone={u.role === 'employee' ? 'violet' : colourTone(u.calendarColor)} />
                   <div className="min-w-0 flex-1">
                     <p className={cx('truncate', u.active ? 'text-fg' : 'text-fg-3 line-through')}>{u.name}</p>
-                    <p className="truncate text-xs text-fg-3">{u.email}{!u.hasPassword && ' · no password yet'}{u.mustChangePassword && u.hasPassword && ' · must change password'}</p>
+                    <p className="truncate text-xs text-fg-3">{u.jobTitle ? `${u.jobTitle} · ` : ''}{u.email}{!u.hasPassword && ' · no password yet'}{u.mustChangePassword && u.hasPassword && ' · must change password'}</p>
                   </div>
                   <div className="flex w-full items-center justify-between gap-3 pl-11 sm:w-auto sm:pl-0">
                     <Tag tone={ROLE[u.role].tone}>{ROLE[u.role].label}</Tag>
-                    <Button variant="ghost" onClick={() => (self ? setChangingOwn(true) : setManaging(u))}>
-                      {self ? 'Change password' : u.hasPassword ? 'Reset password' : 'Create password'}
-                    </Button>
+                    <span className="flex items-center gap-3">
+                      {self && <Button variant="ghost" onClick={() => setChangingOwn(true)}>Change password</Button>}
+                      <Button variant="ghost" onClick={() => setManaging(u)}>{self ? 'Edit' : u.hasPassword ? 'Manage' : 'Create password'}</Button>
+                    </span>
                   </div>
                 </li>
               );
@@ -110,12 +145,7 @@ function Team({ me }: { me: TeamUser }) {
       <Modal title="Change" accent="password" open={changingOwn} onClose={() => setChangingOwn(false)}>
         <ChangePassword onChanged={() => setChangingOwn(false)} />
       </Modal>
-      <Modal title="Add" accent="teammate" open={adding} onClose={() => setAdding(false)}>
-        <div className="space-y-3 text-sm text-fg-2">
-          <p>Accounts can't be created from the app — there is no sign-up, by design.</p>
-          <p>Add the person to <code className="rounded bg-bg-3 px-1.5">TEAM_USERS</code> on the server (name, @azumco.com email, role "admin" or "employee") and restart. They appear here; then use <strong className="text-fg">Create password</strong>.</p>
-        </div>
-      </Modal>
+      {adding && <AddTeammate onClose={() => setAdding(false)} onSaved={() => void state.reload()} />}
     </Card>
   );
 }

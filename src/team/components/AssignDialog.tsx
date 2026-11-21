@@ -21,7 +21,8 @@ export default function AssignDialog({ leadIds, open, onClose, onDone, requireDe
     if (open) setHours(requireDeadline ? String(defaultHours) : 'none');
   }, [open, requireDeadline, defaultHours]);
 
-  const people = team.data?.users ?? [];
+  // Only people who can receive leads can be assigned.
+  const people = (team.data?.users ?? []).filter((u) => u.canReceiveLeads);
   const submit = async () => {
     const ok = await run(() => api('POST', '/leads/assign', { leadIds, assigneeId: assignee || null, hours: assignee && hours !== 'none' ? Number(hours) : null }));
     if (ok) {

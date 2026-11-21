@@ -230,10 +230,24 @@ export function Countdown({ expiresAt, now }: { expiresAt: string | null; now: n
   );
 }
 
-export function Avatar({ name, tone = 'brand' }: { name: string; tone?: TagTone }) {
+/** Initials from the person's real name: "First Last" → "FL", "First" → "F". */
+export const initials = (name: string) =>
+  (name || '?')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((p) => p.charAt(0).toUpperCase())
+    .join('');
+
+/** A user's stored calendar colour as a tag tone (team members are neutral). */
+export const colourTone = (c: string | undefined): TagTone =>
+  (['brand', 'info', 'good', 'violet', 'warn', 'bad'] as const).includes(c as 'brand') ? (c as TagTone) : 'neutral';
+
+export function Avatar({ name, tone = 'brand', size = 'md' }: { name: string; tone?: TagTone; size?: 'md' | 'lg' }) {
   return (
-    <span aria-hidden="true" className={cx('inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium', TAG[tone])}>
-      {(name || '?').trim().charAt(0).toUpperCase()}
+    <span aria-hidden="true" className={cx('inline-flex shrink-0 items-center justify-center rounded-full font-medium', size === 'lg' ? 'h-11 w-11 text-sm' : 'h-8 w-8 text-[11px]', TAG[tone])}>
+      {initials(name)}
     </span>
   );
 }

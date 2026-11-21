@@ -45,7 +45,7 @@ export default function Login({ onSignedIn }: { onSignedIn: (s: Session) => void
         </form>
         <p className="mt-6 flex items-start gap-2 text-xs text-fg-3">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          Only @azumco.com accounts. Forgot your password? Ask Zeeshan.
+          Only @azumco.com accounts. Forgot your password? Ask your super admin.
         </p>
       </div>
       <a href="/" className="mt-6 inline-flex min-h-11 items-center gap-1.5 text-sm text-fg-3 hover:text-fg">

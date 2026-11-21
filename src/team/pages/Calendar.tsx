@@ -8,7 +8,7 @@ import { formatDate, fromIst, istDate } from '../../../shared/time';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { Async, BoxInput, Button, Card, ChipGroup, Empty, ErrorText, Field, Modal, MultiChips, PageTitle, Segmented, Toggle, cx } from '../ui';
-import type { Booking, TeamUser } from '../types';
+import { firstName, type Booking, type TeamUser } from '../types';
 
 interface RawRule { id: string; founderId: string; date: string; start: string; end: string; slotMinutes: string; repeatWeekly: string; repeatUntil: string }
 
@@ -28,13 +28,16 @@ const range = (a: string, b: string) => {
   return ap(a) === ap(b) ? `${fmt(a, true).replace(/ (AM|PM)$/, '')} – ${fmt(b, true)}` : `${fmt(a, true)} – ${fmt(b, true)}`;
 };
 
-// Founder colours from the design: first brand, then info, good, violet.
-const PALETTE = [
-  { block: 'border-brand/60 bg-brand/10 text-brand', dot: 'bg-brand/30 border-brand' },
-  { block: 'border-info/50 bg-info/10 text-info', dot: 'bg-info/30 border-info' },
-  { block: 'border-good/50 bg-good/10 text-good', dot: 'bg-good/30 border-good' },
-  { block: 'border-violet/50 bg-violet/10 text-violet', dot: 'bg-violet/30 border-violet' },
-];
+// Each founder's stored calendar colour (assigned once on the server).
+const PALETTE: Record<string, { block: string; dot: string; solid: string }> = {
+  brand: { block: 'border-brand/60 bg-brand/10 text-brand', dot: 'bg-brand/30 border-brand', solid: 'bg-brand' },
+  info: { block: 'border-info/50 bg-info/10 text-info', dot: 'bg-info/30 border-info', solid: 'bg-info' },
+  good: { block: 'border-good/50 bg-good/10 text-good', dot: 'bg-good/30 border-good', solid: 'bg-good' },
+  violet: { block: 'border-violet/50 bg-violet/10 text-violet', dot: 'bg-violet/30 border-violet', solid: 'bg-violet' },
+  warn: { block: 'border-warn/50 bg-warn/10 text-warn', dot: 'bg-warn/30 border-warn', solid: 'bg-warn' },
+  bad: { block: 'border-bad/50 bg-bad/10 text-bad', dot: 'bg-bad/30 border-bad', solid: 'bg-bad' },
+  neutral: { block: 'border-line-2 bg-bg-3 text-fg-2', dot: 'bg-bg-3 border-line-2', solid: 'bg-fg-3' },
+};
 
 const PRESETS = [
   { value: 'morning', label: 'Morning · 10–1', start: '10:00', end: '13:00' },
@@ -165,13 +168,14 @@ export default function Calendar({ user }: { user: TeamUser }) {
 
   const rules = useApi<{ availability: RawRule[] }>('/availability?all=1');
   const bookings = useApi<{ bookings: Booking[] }>('/bookings');
-  const slotsMeta = useApi<{ founders: { id: string; name: string }[] }>(`/slots?from=${today}&days=1`);
+  const slotsMeta = useApi<{ founders: { id: string; name: string; calendarColor: string }[] }>(`/slots?from=${today}&days=1`);
+  const [selDay, setSelDay] = useState(today);
   const act = useAction();
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   const founders = slotsMeta.data?.founders ?? [];
-  const colour = (id: string) => PALETTE[Math.max(0, founders.findIndex((f) => f.id === id)) % PALETTE.length];
-  const nameOf = (id: string) => founders.find((f) => f.id === id)?.name.split(' ')[0] ?? 'Founder';
+  const colour = (id: string) => PALETTE[founders.find((f) => f.id === id)?.calendarColor ?? 'neutral'] ?? PALETTE.neutral;
+  const nameOf = (id: string) => firstName(founders.find((f) => f.id === id)?.name ?? '') || 'Founder';
   const reload = () => {
     void rules.reload();
     void bookings.reload();
@@ -259,26 +263,48 @@ export default function Calendar({ user }: { user: TeamUser }) {
                 </div>
               </div>
 
-              {/* Day list (phones) */}
-              <ul className="space-y-2 md:hidden">
-                {days.map((d) => {
+              {/* Phones: day picker with founder dots, then the chosen day */}
+              <div className="md:hidden">
+                <div className="grid grid-cols-7 gap-1.5">
+                  {days.map((d) => {
+                    const who = [...new Set(windowsOn(d).map((r) => r.founderId))];
+                    const on = d === (days.includes(selDay) ? selDay : days[0]);
+                    return (
+                      <button key={d} type="button" aria-pressed={on} onClick={() => setSelDay(d)} className={cx('flex min-h-16 flex-col items-center justify-center rounded-2xl border', on ? 'border-brand bg-brand/10 text-brand' : 'border-line bg-bg-2 text-fg')}>
+                        <span className="text-[10px] uppercase tracking-[0.12em] opacity-70">{DAY_NAMES[weekday(d)]}</span>
+                        <span className="text-lg font-medium">{d.slice(8)}</span>
+                        <span className="mt-0.5 flex h-1.5 gap-0.5">{who.slice(0, 3).map((id) => <span key={id} className={cx('h-1.5 w-1.5 rounded-full', colour(id).solid)} />)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(() => {
+                  const d = days.includes(selDay) ? selDay : days[0];
                   const ws = windowsOn(d);
                   const bs = active.filter((b) => b.date === d);
                   return (
-                    <li key={d} className={cx('rounded-3xl border bg-bg-2 p-4', d === today ? 'border-brand/50' : 'border-line')}>
-                      <p className="text-xs uppercase tracking-[0.14em] text-fg-3">{DAY_NAMES[weekday(d)]} {d.slice(8)}</p>
-                      {ws.length === 0 && bs.length === 0 ? (
-                        <p className="mt-2 text-sm text-fg-3">No free slots.</p>
-                      ) : (
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {ws.map((r, i) => <span key={`${r.id}-${i}`} className={cx('rounded-full border px-3 py-1 text-xs', colour(r.founderId).block)}>{nameOf(r.founderId)} · {range(r.start, r.end)}</span>)}
-                          {bs.map((b) => <button key={b.id} type="button" onClick={() => setOpen(b)} className="min-h-9 rounded-full bg-info px-3 text-xs font-medium text-bg">{fmt(b.start, true)} · {b.clientName}</button>)}
+                    <div className="mt-5 space-y-3">
+                      <p className="font-medium">{new Date(`${d}T00:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}</p>
+                      {ws.map((r, i) => (
+                        <div key={`${r.id}-${i}`} className={cx('flex items-center gap-3 rounded-3xl border p-4', colour(r.founderId).block)}>
+                          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-bg/40 text-xs font-medium">{nameOf(r.founderId).charAt(0)}</span>
+                          <div>
+                            <p className="font-medium text-fg">{nameOf(r.founderId)} is free</p>
+                            <p className="text-xs text-fg-2">{range(r.start, r.end)} · {r.slotMinutes} min calls</p>
+                          </div>
                         </div>
-                      )}
-                    </li>
+                      ))}
+                      {bs.map((b) => (
+                        <button key={b.id} type="button" onClick={() => setOpen(b)} className="block w-full rounded-3xl bg-info p-4 text-left text-bg">
+                          <p className="font-medium">{fmt(b.start)} · {b.clientName}</p>
+                          <p className="text-xs opacity-80">Booked by {firstName(b.bookedByName) || 'the team'} · with {firstName(b.founderName)} · {b.mode}</p>
+                        </button>
+                      ))}
+                      {ws.length === 0 && bs.length === 0 && <p className="text-sm text-fg-3">Nobody is free on {DAY_NAMES[weekday(d)]}.</p>}
+                    </div>
                   );
-                })}
-              </ul>
+                })()}
+              </div>
             </>
           )}
         </Async>

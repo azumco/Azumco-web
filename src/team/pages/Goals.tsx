@@ -8,7 +8,7 @@ import { GOAL_STATUSES, type TimeLeft } from '../../../shared/rules';
 import { formatDate } from '../../../shared/time';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
-import { Async, Avatar, Button, Checkbox, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, MultiChips, PageTitle, SearchableSelect, Tag, cx, type TagTone } from '../ui';
+import { Async, Avatar, Button, Checkbox, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, MultiChips, PageTitle, SearchableSelect, Tag, colourTone, cx, type TagTone } from '../ui';
 import { isFounder, type TeamMember, type TeamUser } from '../types';
 
 interface Goal {
@@ -28,7 +28,6 @@ interface Goal {
 
 const first = (n: string) => n.split(' ')[0];
 const STATUS_TONE: Record<string, TagTone> = { Done: 'good', 'In Progress': 'info', 'Not Started': 'neutral', 'On Hold': 'warn' };
-const AVATAR_TONES: TagTone[] = ['brand', 'info', 'good', 'violet'];
 
 function when(g: Goal) {
   if (g.start && g.deadline) {
@@ -68,14 +67,14 @@ function GoalForm({ initial, people, goals, onClose, onSaved }: { initial: Goal 
       <div className="space-y-5">
         <SearchableSelect label="Goal" value={f.goal} options={goals} allowCustom onChange={(v) => setF({ ...f, goal: v })} placeholder="Choose or type a goal" />
         <Field label="Task" required value={f.task} onChange={(e) => setF({ ...f, task: e.target.value })} />
-        <ChipGroup label="Owner — only they can mark it done" options={people.map((p) => ({ value: p, label: first(p) }))} value={f.owner} onChange={(v) => setF({ ...f, owner: v || f.owner, support: f.support.filter((s) => s !== v) })} required />
+        <ChipGroup label="Assigned to — only they can mark it done" options={people.map((p) => ({ value: p, label: first(p) }))} value={f.owner} onChange={(v) => setF({ ...f, owner: v || f.owner, support: f.support.filter((s) => s !== v) })} required />
         <MultiChips label="Tester / support" options={people.filter((p) => p !== f.owner).map((p) => ({ value: p, label: first(p) }))} value={f.support} onChange={(v) => setF({ ...f, support: v })} />
         <div className="grid grid-cols-2 gap-5">
           <Field label="Start" type="date" value={f.start} onChange={(e) => setF({ ...f, start: e.target.value })} />
           <Field label="Deadline" type="date" value={f.deadline} onChange={(e) => setF({ ...f, deadline: e.target.value })} />
         </div>
         <Field label="Note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
-        {initial && <p className="text-xs text-fg-3">Status: {initial.status}. Changing the owner keeps the status.</p>}
+        {initial && <p className="text-xs text-fg-3">Status: {initial.status}. Changing who it's assigned to keeps the status.</p>}
         <ErrorText>{error}</ErrorText>
         <div className="flex gap-2">
           {initial && <Button variant="danger" busy={busy} onClick={remove}><Trash2 className="h-4 w-4" /> Delete</Button>}
@@ -137,7 +136,7 @@ export default function Goals({ user }: { user: TeamUser }) {
           const shown = goals.filter((g) => person === 'all' || mine(g, person));
           const count = (s: string) => shown.filter((g) => g.status === s).length;
           const groups = [...new Set(shown.map((g) => g.goal))];
-          const toneOf = (name: string) => AVATAR_TONES[Math.max(0, people.indexOf(name)) % AVATAR_TONES.length];
+          const toneOf = (name: string) => colourTone(team.data?.users.find((u) => u.name === name)?.calendarColor);
 
           return (
             <div className="space-y-5">

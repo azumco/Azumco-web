@@ -46,11 +46,11 @@ function greeting() {
 
 function Tile({ count, text, action, href, first }: { count: number; text: string; action: string; href: string; first?: boolean }) {
   return (
-    <a href={href} onClick={go(href)} className={cx('block rounded-2xl border p-5 transition-colors', first ? 'border-brand/70 bg-bg-3/40' : 'border-transparent bg-bg-3 hover:border-line-2')}>
-      <p className="text-3xl font-medium tabular-nums">{count}</p>
-      <p className="mt-2 text-sm text-fg-2">{text}</p>
-      <p className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-brand">
-        {action} <ArrowRight className="h-3.5 w-3.5" />
+    <a href={href} onClick={go(href)} aria-label={`${count} ${text} — ${action}`} className={cx('flex items-center gap-3 border-b border-line py-3 last:border-0 sm:block sm:rounded-2xl sm:border sm:p-5 sm:last:border', first ? 'sm:border-brand/70 sm:bg-bg-3/40' : 'sm:border-transparent sm:bg-bg-3 sm:hover:border-line-2')}>
+      <p className={cx('text-xl font-medium tabular-nums sm:text-3xl', first && 'text-brand sm:text-fg')}>{count}</p>
+      <p className="flex-1 text-sm text-fg-2 sm:mt-2">{text}</p>
+      <p className="inline-flex items-center gap-1.5 text-sm font-medium text-brand sm:mt-4">
+        <span className="hidden sm:inline">{action}</span> <ArrowRight className="h-3.5 w-3.5" />
       </p>
     </a>
   );
@@ -103,7 +103,7 @@ export default function Home({ user }: { user: TeamUser }) {
                     <CheckCircle2 className="h-5 w-5 text-good" /> All caught up. Nothing needs you right now.
                   </div>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <div className="sm:grid sm:gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     {tiles.slice(0, 3).map((t, i) => (
                       <Tile key={t.text} {...t} first={i === 0} />
                     ))}
