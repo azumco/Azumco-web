@@ -64,7 +64,7 @@ async function setup(opts: { clock?: FakeClock } = {}) {
 
 /** Search + import N results, optionally assigned to the employee. */
 async function importLeads(n: number, assign = true, hours = 24) {
-  const search = await admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: n });
+  const search = await admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: n });
   expect(search.status).toBe(200);
   const imp = await admin.req('POST', '/api/places/import', {
     category: 'Gym',
@@ -103,7 +103,7 @@ describe('AC2 — employees get 403 on expense, settings and Places routes', () 
       ['GET', '/api/audit'],
       ['GET', '/api/users'],
       ['GET', '/api/places/status'],
-      ['POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 5 }],
+      ['POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 5 }],
       ['POST', '/api/places/import', {}],
       ['GET', '/api/leads/export.csv'],
       ['DELETE', '/api/leads/any'],
@@ -124,7 +124,7 @@ describe('AC2 — employees get 403 on expense, settings and Places routes', () 
     expect((await admin.req('PUT', '/api/settings', { placesPaused: true })).status).toBe(403);
     expect((await admin.req('GET', '/api/audit')).status).toBe(403);
     expect((await admin.req('GET', '/api/finance')).status).toBe(200);
-    expect((await admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 })).status).toBe(200);
+    expect((await admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 })).status).toBe(200);
   });
 });
 
@@ -156,7 +156,7 @@ describe('AC3 — employees read/update only their own leads and goals', () => {
     expect(founderView.length).toBe(9); // 7 seeded + 2
     expect(staffView.map((g: { task: string }) => g.task).sort()).toEqual(['Call list A', 'Support task']);
 
-    const seeded = founderView.find((g: { task: string }) => g.task === 'Fix Azumco website');
+    const seeded = founderView.find((g: { task: string }) => g.task === 'Fix the Azumco website');
     expect((await staff.req('PATCH', `/api/goals/${seeded.id}`, { status: 'Done' })).status).toBe(404);
     const own = staffView.find((g: { task: string }) => g.task === 'Call list A');
     expect((await staff.req('PATCH', `/api/goals/${own.id}`, { status: 'In Progress' })).status).toBe(200);
@@ -178,7 +178,7 @@ describe('AC4 — hard monthly cap', () => {
 
     const requests = Array.from({ length: 10 }, (_, i) =>
       i % 2 === 0
-        ? admin.req('POST', '/api/places/search', { category: 'Salon', city: 'Indore', limit: 3 })
+        ? admin.req('POST', '/api/places/search', { category: 'Salon', state: 'Madhya Pradesh', city: 'Indore', limit: 3 })
         : staff.req('GET', `/api/leads/${leads[i % leads.length].id}/live-contact`),
     );
     const results = await Promise.all(requests);
@@ -220,10 +220,10 @@ describe('AC4 — hard monthly cap', () => {
   it('an unbilled rejection releases the slot', async () => {
     await setup();
     places.failWith = 400;
-    expect((await admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 })).status).toBe(502);
+    expect((await admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 })).status).toBe(502);
     expect((await owner.req('GET', '/api/settings')).body.usage.used).toBe(0);
     places.failWith = 500; // may have been billed → kept
-    await admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 });
+    await admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 });
     expect((await owner.req('GET', '/api/settings')).body.usage.used).toBe(1);
   });
 });
@@ -241,7 +241,7 @@ describe('AC5 — pause stops queued work before it reaches Google', () => {
       const [s] = await h.db.loadFresh(['Settings']);
       await h.db.updateUnqueued('Settings', s.rows.find((r) => r.key === 'placesPaused')!.id, { value: 'TRUE' }, 'owner');
     });
-    const queued = Array.from({ length: 5 }, () => admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 }));
+    const queued = Array.from({ length: 5 }, () => admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 }));
     await new Promise((r) => setTimeout(r, 30)); // let them reach the queue
     release();
     await holder;
@@ -255,7 +255,7 @@ describe('AC5 — pause stops queued work before it reaches Google', () => {
     const leads = await importLeads(2);
     places.calls = [];
     await owner.req('PUT', '/api/settings', { placesPaused: true });
-    expect((await admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 })).body.code).toBe('PLACES_PAUSED');
+    expect((await admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 })).body.code).toBe('PLACES_PAUSED');
     expect((await staff.req('GET', `/api/leads/${leads[0].id}/live-contact`)).body.code).toBe('PLACES_PAUSED');
     expect(places.calls).toHaveLength(0);
   });
@@ -263,7 +263,7 @@ describe('AC5 — pause stops queued work before it reaches Google', () => {
   it('disables itself without an API key', async () => {
     h = await startHarness(new MemoryBackend(), testConfig(), { placesClient: null });
     owner = await superAdmin(h);
-    const res = await owner.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 });
+    const res = await owner.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 });
     expect(res.status).toBe(503);
     expect(res.body.code).toBe('PLACES_DISABLED');
     expect((await owner.req('GET', '/api/places/status')).body.enabled).toBe(false);
@@ -328,17 +328,19 @@ describe('AC7 — confirm contact', () => {
     const dup = await staff.req('POST', `/api/leads/${leads[1].id}/confirm`, { businessName: 'B', phone: '+91 98260-12345' });
     expect(dup.status).toBe(409);
     // Re-importing the same place IDs adds nothing.
-    const search = await admin.req('POST', '/api/places/search', { category: 'Gym', city: 'Bhopal', limit: 2 });
+    const search = await admin.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 });
     expect(search.body.results.every((r: { alreadyInLeads: boolean }) => r.alreadyInLeads)).toBe(true);
     const imp = await admin.req('POST', '/api/places/import', { category: 'Gym', city: 'Bhopal', searchedAt: search.body.searchedAt, placeIds: [FAKE[0].placeId, FAKE[1].placeId] });
     expect(imp.body).toEqual({ imported: 0, skipped: 2 });
   });
 
-  it('adds the state to the Google query when one is chosen', async () => {
+  it('requires a state, and the query includes city, state and India', async () => {
     await setup();
     await admin.req('POST', '/api/places/search', { category: 'Cafe', state: 'Tripura', city: 'Udaipur', limit: 2 });
-    await admin.req('POST', '/api/places/search', { category: 'Cafe', city: 'Udaipur', limit: 2 });
-    expect(places.calls).toEqual(['search:Cafe in Udaipur, Tripura', 'search:Cafe in Udaipur']);
+    const missing = await admin.req('POST', '/api/places/search', { category: 'Cafe', city: 'Udaipur', limit: 2 });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error).toBe('Choose a state.');
+    expect(places.calls).toEqual(['search:Cafe in Udaipur, Tripura, India']);
   });
 
   it('unconfirmed Google leads show "Category · City · Google lead"', async () => {
@@ -444,7 +446,7 @@ describe('AC11 — a call log racing the expiry has exactly one winner', () => {
     const [lead] = await importLeads(1, true, 24);
     h.clock.advance(24 * HOUR + offsetMs);
     const user = toSessionUser((await h.db.all('Users')).find((u) => u.id === staffId)!);
-    const [call, swept] = await Promise.allSettled([logCall(h.db, user, lead.id, { outcome: 'Busy' }), sweepExpired(h.db)]);
+    const [call, swept] = await Promise.allSettled([logCall(h.db, user, lead.id, { outcome: 'No answer' }), sweepExpired(h.db)]);
     return { call, swept, lead };
   }
 
@@ -563,7 +565,7 @@ describe('AC14 — expense summary from the seed', () => {
       cashAfterPayingMembers: 2456,
     });
     expect(summary.members).toEqual([{ name: 'Ayan', spent: 150, repaid: 0, toPay: 150 }]);
-    expect(summary.projects[0]).toMatchObject({ name: 'Zevia', pending: 4000, expenses: 1394, profit: 2606 });
+    expect(summary.projects[0]).toMatchObject({ name: 'Zyvia', pending: 4000, expenses: 1394, profit: 2606 });
   });
 
   it('audits expense edits with before/after', async () => {
@@ -599,8 +601,8 @@ describe('AC15 — goals time left', () => {
     await setup({ clock: new FakeClock(new Date('2026-11-21T19:00:00Z')) });
     const goals = (await owner.req('GET', '/api/goals')).body;
     expect(goals.today).toBe('2026-11-22');
-    expect(goals.goals.find((g: { task: string }) => g.task === 'Fix Azumco website').timeLeft.label).toBe('8 days left');
-    expect(goals.goals.find((g: { task: string }) => g.task === 'Build gym software after deal is confirmed').timeLeft.label).toBe('No deadline');
+    expect(goals.goals.find((g: { task: string }) => g.task === 'Fix the Azumco website').timeLeft.label).toBe('8 days left');
+    expect(goals.goals.find((g: { task: string }) => g.task === 'Build gym software after the deal is confirmed').timeLeft.label).toBe('No deadline');
   });
 });
 
