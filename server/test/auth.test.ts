@@ -25,7 +25,7 @@ describe('bootstrap', () => {
     await superAdmin(h, 'changed-Passw0rd!');
     h = await h.restart();
     expect((await h.db.all('Users')).length).toBe(3);
-    expect((await h.db.all('Settings')).length).toBe(5);
+    expect((await h.db.all('Settings')).length).toBe(7);
     const c = new Client(h.url);
     expect((await c.login(SUPER.email, SUPER.password)).status).toBe(401);
     expect((await c.login(SUPER.email, 'changed-Passw0rd!')).status).toBe(200);
@@ -65,7 +65,7 @@ describe('login', () => {
     expect(res.status).toBe(401);
     expect(res.body.error).toBe(LOGIN_FAILED);
     const row = (await h.db.all('Users')).find((u) => u.email === SUPER.email)!;
-    expect(Date.parse(row.lockedUntil)).toBeGreaterThan(Date.now());
+    expect(Date.parse(row.lockedUntil)).toBeGreaterThan(h.clock.now().getTime());
   });
 
   it('rate-limits sign-in attempts per IP', async () => {

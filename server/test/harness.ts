@@ -8,6 +8,24 @@ import { createApp } from '../app.ts';
 import { bootstrap } from '../bootstrap.ts';
 import { Db } from '../sheets/db.ts';
 import { MemoryBackend } from '../sheets/backend.ts';
+import type { PlacesClient } from '../places/client.ts';
+
+/** A controllable clock: tests move time forward instead of waiting. */
+export class FakeClock {
+  constructor(public t = new Date('2026-11-21T04:30:00.000Z')) {}
+  now = () => new Date(this.t);
+  advance(ms: number) {
+    this.t = new Date(this.t.getTime() + ms);
+  }
+  set(iso: string) {
+    this.t = new Date(iso);
+  }
+}
+
+export interface HarnessOptions {
+  clock?: FakeClock;
+  placesClient?: PlacesClient | null;
+}
 
 // Fake fixture values only — no real people or customers.
 export const SUPER = { email: 'owner@example.test', password: 'initial-Passw0rd!' };
@@ -19,6 +37,7 @@ export function testConfig(overrides: Record<string, string> = {}): Config {
     NODE_ENV: 'test',
     SHEETS_BACKEND: 'memory',
     SESSION_SECRET: 'x'.repeat(40),
+    CRON_TOKEN: 'c'.repeat(40),
     SUPERADMIN_EMAIL: SUPER.email,
     SUPERADMIN_NAME: 'Owner',
     SUPERADMIN_INITIAL_PASSWORD: SUPER.password,
@@ -36,15 +55,17 @@ export interface Harness {
   backend: MemoryBackend;
   config: Config;
   close: () => Promise<void>;
+  clock: FakeClock;
   /** Restart the app over the SAME backend: proves state lives in storage, not memory. */
   restart: () => Promise<Harness>;
 }
 
-export async function startHarness(backend = new MemoryBackend(), config = testConfig()): Promise<Harness> {
-  const db = new Db(backend);
+export async function startHarness(backend = new MemoryBackend(), config = testConfig(), opts: HarnessOptions = {}): Promise<Harness> {
+  const clock = opts.clock ?? new FakeClock();
+  const db = new Db(backend, { now: clock.now });
   const ready = bootstrap(config, db);
   await ready;
-  const app = createApp({ config, db, ready });
+  const app = createApp({ config, db, ready, placesClient: opts.placesClient ?? null });
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
   });
@@ -55,10 +76,11 @@ export async function startHarness(backend = new MemoryBackend(), config = testC
     db,
     backend,
     config,
+    clock,
     close,
     restart: async () => {
       await close();
-      return startHarness(backend, config);
+      return startHarness(backend, config, { ...opts, clock });
     },
   };
 }
