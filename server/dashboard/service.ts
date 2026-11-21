@@ -1,0 +1,98 @@
+// Dashboard numbers. The founder view covers the whole team; the employee view
+// is computed from her own leads, calls and bookings only.
+
+import type { Db } from '../sheets/db.ts';
+import type { Row } from '../sheets/schema.ts';
+import { bool, num } from '../sheets/db.ts';
+import type { SessionUser } from '../auth/sessions.ts';
+import { commissionFor } from '../../shared/rules.ts';
+import { istDate } from '../../shared/time.ts';
+import { placesUsage } from '../places/budget.ts';
+import { commissionInput, followUpState, readLeads, viewContext } from '../leads/service.ts';
+import { effectiveAssignee } from '../leads/access.ts';
+
+function countBy(rows: Row[], key: (r: Row) => string) {
+  const out: Record<string, number> = {};
+  for (const r of rows) {
+    const k = key(r) || 'Not set';
+    out[k] = (out[k] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** Commission credited to each employee: earned / paid / pending. */
+function commissionByAssignee(leads: Row[], users: Row[], rates: Parameters<typeof commissionFor>[1]) {
+  const employees = users.filter((u) => u.role === 'employee');
+  return employees.map((u) => {
+    const mine = leads.filter((l) => l.assignedTo === u.id);
+    const earned = mine.reduce((s, l) => s + commissionFor(commissionInput(l), rates), 0);
+    const paid = mine.reduce((s, l) => s + Math.min(num(l.commissionPaid), commissionFor(commissionInput(l), rates)), 0);
+    return { userId: u.id, name: u.name, earned, paid, pending: Math.max(0, earned - paid) };
+  });
+}
+
+function totals(leads: Row[], bookings: Row[]) {
+  const won = leads.filter((l) => l.status === 'Won').length;
+  const lost = leads.filter((l) => l.status === 'Lost').length;
+  return {
+    leads: leads.length,
+    contacted: leads.filter((l) => bool(l.contacted)).length,
+    callsBooked: bookings.filter((b) => b.status !== 'cancelled').length,
+    qualified: leads.filter((l) => bool(l.callHappened)).length,
+    won,
+    lost,
+    /** Won as a share of closed deals (won + lost). */
+    winRate: won + lost ? Math.round((won / (won + lost)) * 1000) / 10 : null,
+  };
+}
+
+export async function founderDashboard(db: Db) {
+  const [leads, ctx, bookings, expirations] = await Promise.all([readLeads(db), viewContext(db), db.all('Bookings'), db.all('Expirations')]);
+  const today = istDate(ctx.now);
+  const nameOf = (id: string) => ctx.users.find((u) => u.id === id)?.name ?? 'Unknown';
+
+  const expiredByAssignee: Record<string, number> = {};
+  for (const e of expirations) expiredByAssignee[nameOf(e.assigneeId)] = (expiredByAssignee[nameOf(e.assigneeId)] ?? 0) + 1;
+
+  return {
+    totals: totals(leads, bookings),
+    followUps: {
+      overdue: leads.filter((l) => followUpState(l, today) === 'overdue').length,
+      dueToday: leads.filter((l) => followUpState(l, today) === 'today').length,
+    },
+    unclaimed: leads.filter((l) => !effectiveAssignee(l, ctx.now)).length,
+    breakdowns: {
+      rating: countBy(leads, (l) => l.rating),
+      status: countBy(leads, (l) => l.status || 'New'),
+      outcome: countBy(leads.filter((l) => l.callOutcome), (l) => l.callOutcome),
+      source: countBy(leads, (l) => l.source),
+      addedBy: countBy(leads, (l) => nameOf(l.addedBy)),
+    },
+    places: await placesUsage(db),
+    expiredByAssignee,
+    commission: commissionByAssignee(leads, ctx.users, ctx.rates),
+  };
+}
+
+export async function employeeDashboard(db: Db, user: SessionUser) {
+  const [all, ctx, bookings] = await Promise.all([readLeads(db), viewContext(db), db.all('Bookings')]);
+  const today = istDate(ctx.now);
+  const mine = all.filter((l) => effectiveAssignee(l, ctx.now) === user.id);
+  const myBookings = bookings.filter((b) => b.bookedBy === user.id && b.status !== 'cancelled');
+  const commission = commissionByAssignee(mine, ctx.users.filter((u) => u.id === user.id), ctx.rates)[0] ?? { earned: 0, paid: 0, pending: 0 };
+
+  return {
+    stats: {
+      calls: ctx.calls.filter((c) => c.userId === user.id).length,
+      booked: myBookings.length,
+      qualified: mine.filter((l) => bool(l.callHappened)).length,
+      won: mine.filter((l) => l.status === 'Won').length,
+    },
+    queue: mine.filter((l) => !bool(l.contacted)).length,
+    followUps: {
+      overdue: mine.filter((l) => followUpState(l, today) === 'overdue').length,
+      dueToday: mine.filter((l) => followUpState(l, today) === 'today').length,
+    },
+    earnings: { earned: commission.earned, paid: commission.paid, pending: commission.pending },
+  };
+}

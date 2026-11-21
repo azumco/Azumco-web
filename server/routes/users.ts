@@ -9,6 +9,7 @@ import type { Row } from '../sheets/schema.ts';
 import { audit } from '../audit.ts';
 import { generateTempPassword, hashPassword } from '../auth/passwords.ts';
 import { HttpError, authOf, requireRole } from '../auth/middleware.ts';
+import { releaseLeadsOf } from '../leads/service.ts';
 
 export const publicUser = (u: Row) => ({
   id: u.id,
@@ -88,16 +89,18 @@ export function usersRoutes(db: Db) {
     }
 
     const { before, after } = await db.update('Users', user.id, patch, actor.id, parsed.data.expectedUpdatedAt);
+    // A deactivated user's leads go back to Unclaimed immediately.
+    const released = parsed.data.active === false ? await releaseLeadsOf(db, user.id, actor.id) : 0;
     await audit(db, {
       actorId: actor.id,
       action: 'users.update',
       entity: 'Users',
       entityId: user.id,
       before: { role: before.role, active: before.active },
-      after: { role: after.role, active: after.active },
+      after: { role: after.role, active: after.active, leadsReleased: released },
       ip: req.ip,
     });
-    res.json({ user: publicUser(after) });
+    res.json({ user: publicUser(after), leadsReleased: released });
   });
 
   return router;

@@ -14,6 +14,10 @@ import { HttpError, requireAuth, sameOriginGuard } from './auth/middleware.ts';
 import { Sessions } from './auth/sessions.ts';
 import { authRoutes } from './routes/auth.ts';
 import { usersRoutes } from './routes/users.ts';
+import { workRoutes } from './routes/work.ts';
+import { maintenanceRoutes } from './routes/maintenance.ts';
+import { PlacesService } from './places/service.ts';
+import { GooglePlacesClient, type PlacesClient } from './places/client.ts';
 import { log } from './lib/log.ts';
 
 export interface AppDeps {
@@ -22,14 +26,18 @@ export interface AppDeps {
   /** Resolves once bootstrap is done. API calls wait on it, so a cold start is slow, not an error. */
   ready: Promise<void>;
   staticDir?: string;
+  /** Override for tests. Defaults to the real client when GOOGLE_PLACES_API_KEY is set, else disabled. */
+  placesClient?: PlacesClient | null;
 }
 
 const NOINDEX = 'noindex, nofollow, noarchive';
 const READY_TIMEOUT_MS = 40_000;
 
-export function createApp({ config, db, ready, staticDir }: AppDeps) {
+export function createApp({ config, db, ready, staticDir, placesClient }: AppDeps) {
   const app = express();
   const sessions = new Sessions(db, config.SESSION_SECRET);
+  const client = placesClient !== undefined ? placesClient : config.GOOGLE_PLACES_API_KEY ? new GooglePlacesClient(config.GOOGLE_PLACES_API_KEY) : null;
+  const places = new PlacesService(db, client);
 
   app.disable('x-powered-by');
   // Render terminates TLS at one proxy hop; this makes req.ip the client address.
@@ -53,6 +61,10 @@ export function createApp({ config, db, ready, staticDir }: AppDeps) {
     res.json({ ok: true });
   });
 
+  // Called by an external scheduler with a bearer token, so it sits before the
+  // browser-oriented same-origin guard. It reads no cookies.
+  api.use('/maintenance', maintenanceRoutes(config, db, ready));
+
   api.use(express.json({ limit: '100kb' }));
   api.use(sameOriginGuard);
   api.use(async (_req, _res, next) => {
@@ -74,6 +86,7 @@ export function createApp({ config, db, ready, staticDir }: AppDeps) {
 
   api.use('/auth', authRoutes(config, db, sessions));
   api.use('/users', requireAuth(sessions), usersRoutes(db));
+  api.use(requireAuth(sessions), workRoutes(db, places));
 
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found.')));
   api.use(errorHandler(config));
@@ -108,14 +121,17 @@ function errorHandler(config: Config) {
     // Body-parser errors (malformed JSON, too large) carry a status of their own.
     const status = e.status ?? e.statusCode ?? 500;
 
-    if (status >= 500) {
+    if (status >= 500 && !(err instanceof HttpError)) {
       log.error('request failed', { method: req.method, path: req.path, error: e.message });
     }
 
-    const expose = status < 500 || !config.isProduction;
+    // Our own HttpErrors carry user-facing messages (e.g. a deliberate 503
+    // "not set up"); anything unexpected is hidden in production.
+    const intentional = err instanceof HttpError;
+    const expose = intentional || status < 500 || !config.isProduction;
     res.status(status).json({
       error: expose ? e.message || 'Request failed.' : 'Something went wrong. Please try again.',
-      ...(e.code && typeof e.code === 'string' && status < 500 ? { code: e.code } : {}),
+      ...(expose && typeof e.code === 'string' ? { code: e.code } : {}),
     });
   };
 }

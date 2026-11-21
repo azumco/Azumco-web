@@ -6,15 +6,8 @@ import type { Db } from './sheets/db.ts';
 import { boolCell } from './sheets/db.ts';
 import { hashPassword } from './auth/passwords.ts';
 import { log } from './lib/log.ts';
-
-/** Defaults written once if the key is absent. Later phases read these. */
-export const DEFAULT_SETTINGS: Record<string, string> = {
-  placesMonthlyCap: '1000',
-  placesPaused: 'FALSE',
-  commissionQualifiedFee: '200',
-  commissionOneTimePct: '10',
-  commissionMonthlyPct: '10',
-};
+import { DEFAULT_SETTINGS } from './settings.ts';
+import { seed } from './seed.ts';
 
 export async function bootstrap(config: Config, db: Db): Promise<void> {
   await db.ensureSchema();
@@ -68,7 +61,10 @@ export async function bootstrap(config: Config, db: Db): Promise<void> {
 
   // ── settings defaults ──────────────────────────────────────────────────
   const settings = new Set((await db.all('Settings')).map((s) => s.key));
-  for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
-    if (!settings.has(key)) await db.insert('Settings', { key, value }, 'system');
+  const missing = Object.entries(DEFAULT_SETTINGS).filter(([key]) => !settings.has(key));
+  if (missing.length) {
+    await db.exclusive(() => db.insertManyUnqueued('Settings', missing.map(([key, value]) => ({ key, value })), 'system'));
   }
+
+  await seed(db);
 }
