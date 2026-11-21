@@ -18,7 +18,7 @@ Branch: `feature/team-portal`. Everything below is done by a person; nothing her
 > - **Money and goals:** expenses, Zyvia project, company registration milestone, commission (earned / paid / pending), team goals that only the assignee can tick off.
 > - **Seeds:** real data only (team, three expenses, Zyvia, the CS quote, seven goals, settings), each once.
 >
-> Verified: 125 tests, both type-checks, `npm ci --include=dev && npm run build:all` from a clean clone, `npm audit` clean, secret scan clean (history, `dist/`, `dist-server/`), staging end-to-end run with 2 real Places calls, production first-run check (seeds only; second start writes nothing).
+> Verified: 128 tests, both type-checks, `npm ci --include=dev && npm run build:all` from a clean clone, `npm audit` clean, secret scan clean (history, `dist/`, `dist-server/`), staging end-to-end run with 2 real Places calls, production first-run check (seeds only; second start writes nothing).
 
 ## 2. Push and merge
 
@@ -71,6 +71,18 @@ The maintenance sweep (returning lapsed lead assignments and sending "expiring s
 2. Remove `SUPERADMIN_INITIAL_PASSWORD` from your local `.env` too.
 3. Settings → Team: for each teammate choose **Create password**, share it privately (not in a group chat). Each person sets their own on first sign-in.
 4. Settings → Team: set job titles. Check "Can receive leads" is on only for the people who should get leads.
+
+## Locked out?
+
+- **A teammate** forgot their password or is locked out: the super admin opens Settings → Team → **Create password** and shares the one-time password privately.
+- **The super admin** is locked out (no one can issue a password in the app): on your own machine, in the project folder with the production `.env`, run in PowerShell or Windows Terminal:
+
+  ```
+  npm run reset-password -- name@azumco.com
+  ```
+
+  It shows the spreadsheet title and ID and the account it will change, and does nothing unless you type `yes`. It then asks for a new temporary password twice at a hidden prompt (12+ characters, never a command-line argument, never printed or logged). It stores the password hashed, forces a change at next sign-in, clears failed attempts and the 15-minute account lockout, signs that person out everywhere, and writes the audit entry "password reset via local CLI". It only accepts active accounts on the company domain. There is no HTTP route for this.
+- After too many wrong attempts from one network, sign-in also pauses for up to 15 minutes per IP. That limit lives in the running server's memory: wait it out, or restart the service on Render.
 
 ## 6. Rollback
 

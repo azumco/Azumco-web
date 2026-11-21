@@ -47,6 +47,7 @@ npm run build:all        # site + server bundle (dist/ and dist-server/)
 STAGING_MODE=true npm run staging -- inspect      # staging sheet: row counts (never touches production)
 STAGING_MODE=true npm run staging:walk -- ...     # staging end-to-end walk over HTTP (see docs/RELEASE.md)
 npm run prod:data -- snapshot <file>              # production: copy of every tab (secret columns redacted) + schema check
+npm run reset-password -- <email>                  # locked-out super admin: local-only reset (see Locked out?)
 npm start                # serve both, as on Render
 ```
 
@@ -98,6 +99,18 @@ Generate random secrets with: `node -e "console.log(require('crypto').randomByte
 1. Sign in at `/team` with `SUPERADMIN_EMAIL` and `SUPERADMIN_INITIAL_PASSWORD`. You must choose a new password straight away.
 2. Remove `SUPERADMIN_INITIAL_PASSWORD` from the environment. After first use it is ignored, and the server logs a reminder while it is still set.
 3. Go to Settings → Users. For each team member from `TEAM_USERS`, choose **Create password**. Share the one-time password privately. Each person picks their own at first sign-in.
+
+### Locked out?
+
+- **A teammate** forgot their password or is locked out: the super admin opens Settings → Team → **Create password** and shares the one-time password privately.
+- **The super admin** is locked out (no one can issue a password in the app): on your own machine, in the project folder with the production `.env`, run in PowerShell or Windows Terminal:
+
+  ```
+  npm run reset-password -- name@azumco.com
+  ```
+
+  It shows the spreadsheet title and ID and the account it will change, and does nothing unless you type `yes`. It then asks for a new temporary password twice at a hidden prompt (12+ characters, never a command-line argument, never printed or logged). It stores the password hashed, forces a change at next sign-in, clears failed attempts and the 15-minute account lockout, signs that person out everywhere, and writes the audit entry "password reset via local CLI". It only accepts active accounts on the company domain. There is no HTTP route for this.
+- After too many wrong attempts from one network, sign-in also pauses for up to 15 minutes per IP. That limit lives in the running server's memory: wait it out, or restart the service on Render.
 
 ### Render (one Web Service, free tier)
 

@@ -22,7 +22,8 @@
     "env:check": "tsx --env-file-if-exists=.env server/scripts/env-check.ts",
     "staging": "tsx --env-file-if-exists=.env server/scripts/staging.ts",
     "start:local": "node --env-file-if-exists=.env dist-server/index.js",
-    "staging:walk": "tsx --env-file-if-exists=.env server/scripts/staging-walk.ts"
+    "staging:walk": "tsx --env-file-if-exists=.env server/scripts/staging-walk.ts",
+    "reset-password": "tsx --env-file-if-exists=.env server/scripts/reset-password.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
