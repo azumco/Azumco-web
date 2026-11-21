@@ -14,12 +14,20 @@ const routes: Record<string, LegalKey> = {
   '/refund-policy': 'refund',
 };
 
+// Team area: its own lazy chunk (and stylesheet), never loaded by public pages.
+const TeamApp = lazy(() => import('./team/TeamApp.tsx'));
+
 const path = window.location.pathname.replace(/\/+$/, '') || '/';
 const legal = routes[path];
+const isTeam = path === '/team' || path.startsWith('/team/');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {legal ? (
+    {isTeam ? (
+      <Suspense fallback={<div className="min-h-screen bg-bg" />}>
+        <TeamApp />
+      </Suspense>
+    ) : legal ? (
       <Suspense fallback={<div className="min-h-screen bg-bg" />}>
         <Cursor />
         <LegalPage page={legal} />

@@ -1,0 +1,39 @@
+/*
+  Team-area stylesheet. Loaded only with the lazy /team chunk, so the public
+  site's CSS is unchanged. Base tokens come from index.css (:root) and the
+  utility mapping from theme.css. No preflight here — index.css applies it.
+
+  Status colours (good / warn / bad, plus info and violet for the Qualified
+  and Proposal pills) are defined by the team design's Read-me frame and exist
+  only in the team area.
+*/
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "../theme.css";
+
+@source "./";
+
+:root {
+  --good: #4ade80;
+  --warn: #f5b547;
+  --bad: #f87171;
+  --info: #7aa7ff;
+  --violet: #b69cff;
+}
+
+@theme inline {
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --color-violet: var(--violet);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-root *,
+  .team-root *::before,
+  .team-root *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
