@@ -48,6 +48,14 @@ export const TABS = {
   Expenses: ['date', 'item', 'amount', 'paidBy', 'project', 'repaid'],
   Projects: ['name', 'dealTotal', 'received', 'status'],
   Goals: ['goal', 'task', 'owner', 'support', 'start', 'deadline', 'status'],
+  Milestones: ['name', 'provider', 'gstIncluded', 'targetOverride', 'notes'],
+  /** amountWithoutGst: the amount when GST registration is not included ('' = same). */
+  MilestoneItems: [
+    'milestoneId', 'label', 'amount', 'amountWithoutGst', 'note', 'sortOrder',
+    'paid', 'paidBy', 'paidAmount', 'paidAt', 'expenseId',
+  ],
+  /** Founder money put into the company. Counts as company funds. */
+  Contributions: ['date', 'founder', 'amount', 'note'],
 } as const;
 
 export type TabName = keyof typeof TABS;

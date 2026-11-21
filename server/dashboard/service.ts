@@ -10,6 +10,7 @@ import { istDate } from '../../shared/time.ts';
 import { placesUsage } from '../places/budget.ts';
 import { commissionInput, followUpState, readLeads, viewContext } from '../leads/service.ts';
 import { effectiveAssignee } from '../leads/access.ts';
+import { MilestoneService } from '../milestone/service.ts';
 
 function countBy(rows: Row[], key: (r: Row) => string) {
   const out: Record<string, number> = {};
@@ -71,7 +72,14 @@ export async function founderDashboard(db: Db) {
     places: await placesUsage(db),
     expiredByAssignee,
     commission: commissionByAssignee(leads, ctx.users, ctx.rates),
+    milestone: await milestoneSummary(db),
   };
+}
+
+/** Compact card data for the first milestone, or null when there is none. */
+async function milestoneSummary(db: Db) {
+  const m = (await new MilestoneService(db).overview()).milestones[0];
+  return m ? { id: m.id, name: m.name, ...m.numbers } : null;
 }
 
 export async function employeeDashboard(db: Db, user: SessionUser) {

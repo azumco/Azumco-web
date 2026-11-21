@@ -15,6 +15,7 @@ interface Founder {
   places: PlacesUsage;
   expiredByAssignee: Record<string, number>;
   commission: { userId: string; name: string; earned: number; paid: number; pending: number }[];
+  milestone: { id: string; name: string; target: number; stillNeeded: number; sharePerFounder: number; percent: number; fullyFunded: boolean } | null;
 }
 
 const go = (path: string) => (e: React.MouseEvent) => {
@@ -50,6 +51,25 @@ export default function Dashboard() {
                 <Stat label="Unclaimed leads" value={d.unclaimed} />
               </a>
             </div>
+
+            {d.milestone && (
+              <a href="/team/milestone" onClick={go('/team/milestone')} className="block">
+                <Card className="hover:border-line-2">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h3 className="text-sm font-medium">{d.milestone.name}</h3>
+                    <span className="text-sm tabular-nums text-fg-2">{d.milestone.percent}% funded</span>
+                  </div>
+                  <div className="mt-3 h-1.5 rounded-full bg-bg-3">
+                    <div className="h-1.5 rounded-full bg-brand" style={{ width: `${d.milestone.percent}%` }} />
+                  </div>
+                  <p className="mt-2 text-xs text-fg-3">
+                    {d.milestone.fullyFunded
+                      ? 'Fully funded'
+                      : `${formatInr(d.milestone.stillNeeded)} still needed of ${formatInr(d.milestone.target)} · ${formatInr(d.milestone.sharePerFounder)} per founder`}
+                  </p>
+                </Card>
+              </a>
+            )}
 
             <div className="grid gap-3 lg:grid-cols-2">
               <Card>

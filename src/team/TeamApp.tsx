@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Bell, BookOpen, CalendarDays, CalendarPlus, LayoutDashboard, ListChecks, LogOut, Menu, Search, Settings as SettingsIcon,
-  Target, Users as UsersIcon, Wallet, X,
+  Flag, Target, Users as UsersIcon, Wallet, X,
 } from 'lucide-react';
 import { Logo } from '../components/Nav';
 import { Container } from '../components/ui';
@@ -32,6 +32,7 @@ import Queue from './pages/Queue';
 import FollowUps from './pages/FollowUps';
 import Earnings from './pages/Earnings';
 import Notifications from './pages/Notifications';
+import MilestonePage from './pages/Milestone';
 import './team.css';
 
 export type { Role, Session, TeamUser };
@@ -74,6 +75,7 @@ const NAV: NavItem[] = [
   { path: '/team/find', label: 'Find clients', icon: Search, roles: FOUNDERS },
   { path: '/team/calendar', label: 'Calendar', icon: CalendarDays, roles: FOUNDERS },
   { path: '/team/expenses', label: 'Expenses', icon: Wallet, roles: FOUNDERS },
+  { path: '/team/milestone', label: 'Milestone', icon: Flag, roles: FOUNDERS },
   { path: '/team/goals', label: 'Goals', icon: Target, roles: ALL },
   { path: '/team/settings', label: 'Settings', icon: SettingsIcon, roles: ['super_admin'] },
   { path: '/team', label: 'Queue', icon: ListChecks, roles: ['employee'], tab: true },
@@ -110,6 +112,8 @@ function page(path: string, user: TeamUser): ReactNode {
       return <Book user={user} />;
     case '/team/expenses':
       return founder ? <Expenses /> : null;
+    case '/team/milestone':
+      return founder ? <MilestonePage user={user} /> : null;
     case '/team/goals':
       return <Goals user={user} />;
     case '/team/settings':

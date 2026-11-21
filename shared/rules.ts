@@ -131,6 +131,8 @@ export interface ProjectInput {
 
 export interface ExpenseSummary {
   received: number;
+  /** Money founders put into the company. Counts as company funds. */
+  contributions: number;
   spentByCompany: number;
   cashInCompany: number;
   stillToReceive: number;
@@ -142,10 +144,10 @@ export interface ExpenseSummary {
 
 /**
  * - spent by company = expenses paid from the Company Fund + member expenses already repaid
- * - cash in company  = money received − spent by company
+ * - cash in company  = money received + founder contributions − spent by company
  * - owed to members  = member expenses not yet repaid
  */
-export function summarizeExpenses(expenses: ExpenseInput[], projects: ProjectInput[]): ExpenseSummary {
+export function summarizeExpenses(expenses: ExpenseInput[], projects: ProjectInput[], contributions = 0): ExpenseSummary {
   const received = projects.reduce((s, p) => s + p.received, 0);
   const stillToReceive = projects.reduce((s, p) => s + Math.max(0, p.dealTotal - p.received), 0);
 
@@ -164,10 +166,11 @@ export function summarizeExpenses(expenses: ExpenseInput[], projects: ProjectInp
   const repaidTotal = [...members.values()].reduce((s, m) => s + m.repaid, 0);
   const owedToMembers = [...members.values()].reduce((s, m) => s + m.spent - m.repaid, 0);
   const spentByCompany = companyPaid + repaidTotal;
-  const cashInCompany = received - spentByCompany;
+  const cashInCompany = received + contributions - spentByCompany;
 
   return {
     received,
+    contributions,
     spentByCompany,
     cashInCompany,
     stillToReceive,
@@ -185,5 +188,72 @@ export function summarizeExpenses(expenses: ExpenseInput[], projects: ProjectInp
         profit: p.received - charged,
       };
     }),
+  };
+}
+
+// ─── Milestone (company registration funding) ───────────────────────────────
+
+/** "Equal share per founder" divides by this (the three founders). */
+export const FOUNDER_SHARE_COUNT = 3;
+
+export interface MilestoneItemInput {
+  amount: number;
+  /** Amount when GST registration is not included; null = same as amount. */
+  amountWithoutGst: number | null;
+  paid: boolean;
+  /** What was actually recorded as an expense when marked paid. */
+  paidAmount: number;
+}
+
+export const itemAmount = (item: Pick<MilestoneItemInput, 'amount' | 'amountWithoutGst'>, gstIncluded: boolean) =>
+  !gstIncluded && item.amountWithoutGst !== null ? item.amountWithoutGst : item.amount;
+
+export interface MilestoneNumbers {
+  target: number;
+  paid: number;
+  unpaid: number;
+  fundsAvailable: number;
+  stillNeeded: number;
+  expectedAfterPending: number;
+  sharePerFounder: number;
+  sharePerFounderAfterPending: number;
+  percent: number;
+  fullyFunded: boolean;
+}
+
+/**
+ * - target            = sum of line items (or the super admin's override)
+ * - still needed      = unpaid line items − funds available, never below zero
+ * - expected after pending income = still needed − money still to receive, never below zero
+ * - shares            = each divided by the three founders, rounded up to whole rupees
+ *
+ * Paid items are already reflected in the expense summary (their expense
+ * lowered the funds), so they are taken out of "unpaid" — never counted twice.
+ */
+export function computeMilestone(opts: {
+  items: MilestoneItemInput[];
+  gstIncluded: boolean;
+  targetOverride: number | null;
+  fundsAvailable: number;
+  stillToReceive: number;
+}): MilestoneNumbers {
+  const itemsTotal = opts.items.reduce((s, i) => s + itemAmount(i, opts.gstIncluded), 0);
+  const paid = opts.items.filter((i) => i.paid).reduce((s, i) => s + i.paidAmount, 0);
+  const target = opts.targetOverride ?? itemsTotal;
+  const unpaid = Math.max(0, target - paid);
+  const stillNeeded = Math.max(0, unpaid - opts.fundsAvailable);
+  const expectedAfterPending = Math.max(0, stillNeeded - opts.stillToReceive);
+  const funded = target - stillNeeded;
+  return {
+    target,
+    paid,
+    unpaid,
+    fundsAvailable: opts.fundsAvailable,
+    stillNeeded,
+    expectedAfterPending,
+    sharePerFounder: Math.ceil(stillNeeded / FOUNDER_SHARE_COUNT),
+    sharePerFounderAfterPending: Math.ceil(expectedAfterPending / FOUNDER_SHARE_COUNT),
+    percent: target > 0 ? Math.max(0, Math.min(100, Math.round((funded / target) * 1000) / 10)) : 100,
+    fullyFunded: stillNeeded === 0,
   };
 }

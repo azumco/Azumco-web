@@ -99,7 +99,7 @@ export default function Expenses() {
         {({ expenses, projects, summary, members }) => (
           <div className="space-y-10">
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-              <Stat label="Money received" value={formatInr(summary.received)} />
+              <Stat label="Money received" value={formatInr(summary.received)} hint={summary.contributions ? `+ ${formatInr(summary.contributions)} founder contributions` : undefined} />
               <Stat label="Spent by company" value={formatInr(summary.spentByCompany)} hint="Company-paid + repaid to members" />
               <Stat label="Cash in company" value={formatInr(summary.cashInCompany)} accent />
               <Stat label="Still to receive" value={formatInr(summary.stillToReceive)} />

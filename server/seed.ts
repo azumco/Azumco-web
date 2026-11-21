@@ -34,6 +34,27 @@ export async function seed(db: Db): Promise<void> {
     });
   });
 
+  // Quote from the company secretary (Baani Consultancy). The CS fee is ₹8,500
+  // with GST registration, ₹7,000 without (the ₹1,500 is not charged if GST
+  // is not applicable).
+  await once(db, 'seed:milestone:v1', async () => {
+    await db.exclusive(async () => {
+      const [m] = await db.insertManyUnqueued('Milestones', [{
+        name: 'Register Azumco as a Private Limited Company',
+        provider: 'Baani Consultancy (CS)',
+        gstIncluded: 'TRUE',
+        targetOverride: '',
+        notes: 'Quote from our CS, Baani Consultancy.',
+      }], 'system');
+      await db.insertManyUnqueued('MilestoneItems', [
+        { milestoneId: m.id, sortOrder: '1', paid: 'FALSE', label: 'CS professional fee (certificate of incorporation, company PAN, TAN and GST registration)', amount: '8500', amountWithoutGst: '7000', note: '₹7,000 if GST registration is not included' },
+        { milestoneId: m.id, sortOrder: '2', paid: 'FALSE', label: 'Government fee: name application', amount: '1000', amountWithoutGst: '', note: '' },
+        { milestoneId: m.id, sortOrder: '3', paid: 'FALSE', label: 'Government fee: incorporation (up to ₹10,00,000 authorised capital)', amount: '7693', amountWithoutGst: '', note: '₹7,550 + ₹143' },
+        { milestoneId: m.id, sortOrder: '4', paid: 'FALSE', label: 'Digital signature certificates for directors', amount: '0', amountWithoutGst: '', note: 'confirm amount with the CS' },
+      ], 'system');
+    });
+  });
+
   await once(db, 'seed:goals:v1', async () => {
     const zeeshan = p('Zeeshan');
     await db.exclusive(() =>

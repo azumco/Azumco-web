@@ -41,13 +41,18 @@ export class FinanceService {
   constructor(private readonly db: Db) {}
 
   async overview() {
-    const [expenses, projects, users] = await Promise.all([this.db.all('Expenses'), this.db.all('Projects'), this.db.all('Users')]);
+    const [expenses, projects, users, contributions] = await Promise.all([
+      this.db.all('Expenses'),
+      this.db.all('Projects'),
+      this.db.all('Users'),
+      this.db.all('Contributions'),
+    ]);
     const ev = expenses.map(expenseView).sort((a, b) => b.date.localeCompare(a.date));
     const pv = projects.map(projectView);
     return {
       expenses: ev,
       projects: pv,
-      summary: summarizeExpenses(ev, pv),
+      summary: summarizeExpenses(ev, pv, contributions.reduce((s, c) => s + num(c.amount), 0)),
       members: users.filter((u) => u.active !== 'FALSE').map((u) => u.name),
     };
   }
