@@ -16,7 +16,7 @@ import {
 import { assertLeadAccess } from '../leads/access.ts';
 import { PlacesService, importSchema, searchSchema } from '../places/service.ts';
 import { placesUsage } from '../places/budget.ts';
-import { BookingService, availabilitySchema, bookingSchema, rescheduleSchema } from '../bookings/service.ts';
+import { BookingService, availabilitySchema, bookingSchema, rescheduleSchema, slotBatchSchema } from '../bookings/service.ts';
 import { FinanceService } from '../finance/service.ts';
 import { GoalService } from '../goals/service.ts';
 import { employeeDashboard, founderDashboard } from '../dashboard/service.ts';
@@ -145,11 +145,20 @@ export function workRoutes(db: Db, places: PlacesService) {
   });
 
   // ── Availability & bookings ──────────────────────────────────────────────
-  r.get('/availability', FOUNDERS, async (_req, res) => {
-    res.json({ availability: await bookings.listAvailability(me(res).id) });
+  r.get('/availability', FOUNDERS, async (req, res) => {
+    // ?all=1 → every founder's rules (calendar grid); default → mine.
+    res.json({ availability: await bookings.listAvailability(req.query.all ? undefined : me(res).id) });
   });
   r.post('/availability', FOUNDERS, async (req, res) => {
     res.status(201).json({ availability: await bookings.addAvailability(me(res), parse(availabilitySchema, req.body)) });
+  });
+  r.post('/availability/batch', FOUNDERS, async (req, res) => {
+    res.status(201).json(await bookings.addSlots(me(res), parse(slotBatchSchema, req.body)));
+  });
+  r.patch('/availability/:id', FOUNDERS, async (req, res) => {
+    const { repeatWeekly } = parse(z.object({ repeatWeekly: z.boolean() }), req.body);
+    await bookings.setRepeat(me(res), param(req, 'id'), repeatWeekly);
+    res.json({ ok: true });
   });
   r.delete('/availability/:id', FOUNDERS, async (req, res) => {
     await bookings.removeAvailability(me(res), param(req, 'id'));
@@ -225,7 +234,7 @@ export function workRoutes(db: Db, places: PlacesService) {
   // ── Goals ────────────────────────────────────────────────────────────────
   r.get('/goals', async (_req, res) => res.json({ goals: await goals.list(me(res)), today: istDate(db.now()) }));
   r.post('/goals', FOUNDERS, async (req, res) => res.status(201).json({ goal: await goals.create(me(res), req.body) }));
-  r.patch('/goals/:id', async (req, res) => res.json({ goal: await goals.update(me(res), param(req, 'id'), req.body) }));
+  r.patch('/goals/:id', async (req, res) => res.json({ goal: await goals.update(me(res), param(req, 'id'), req.body, req.ip) }));
   r.delete('/goals/:id', FOUNDERS, async (req, res) => {
     await goals.remove(me(res), param(req, 'id'));
     res.json({ ok: true });
