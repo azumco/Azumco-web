@@ -44,6 +44,9 @@ npm run prod:data -- clean        # back up affected tabs (dated copies), then r
 npm run scan:secrets     # checks the real values in .env never appear in dist/, tracked files, git history (or log files you pass)
 npm run test:live        # optional: real-Sheets check on temporary __test_ tabs (add -- --places for ONE real Places search)
 npm run build:all        # site + server bundle (dist/ and dist-server/)
+STAGING_MODE=true npm run staging -- inspect      # staging sheet: row counts (never touches production)
+STAGING_MODE=true npm run staging:walk -- ...     # staging end-to-end walk over HTTP (see docs/RELEASE.md)
+npm run prod:data -- snapshot <file>              # production: copy of every tab (secret columns redacted) + schema check
 npm start                # serve both, as on Render
 ```
 
@@ -55,7 +58,7 @@ npm start                # serve both, as on Render
 2. Create one Google Sheet and share it with the service account's `client_email` as **Editor**. Put its id (the part of the URL between `/d/` and `/edit`) in `GOOGLE_SHEETS_SPREADSHEET_ID`.
 3. Optional, for Find clients: enable **Places API (New)** and create an API key restricted to that API. Put it in `GOOGLE_PLACES_API_KEY`. Without it, Find clients turns itself off.
 
-On the first start the server creates every tab and header itself, then inserts the seed expenses, the Zevia project and the goals, once.
+On the first start the server creates every tab and header itself, then inserts the seed expenses, the Zyvia project, the registration milestone and the goals, once.
 
 ### Environment variables
 
@@ -70,19 +73,23 @@ On the first start the server creates every tab and header itself, then inserts 
 | `SUPERADMIN_INITIAL_PASSWORD` | first start only | 12+ characters; remove after first sign-in |
 | `TEAM_USERS` | yes | JSON: `[{"name":"…","email":"…","role":"admin"},{"name":"…","email":"…","role":"employee"}]`, all on the allowed domain |
 | `GOOGLE_PLACES_API_KEY` | no | enables Find clients |
-| `CRON_TOKEN` | recommended | 32+ random characters; enables the maintenance endpoint |
+| `CRON_TOKEN` | recommended | 32+ random characters; enables the maintenance endpoint (404 without it) |
+| `PORT` | no | Render sets it; default 8080 |
+| `STAGING_MODE`, `STAGING_SPREADSHEET_ID`, `STAGING_ASSIGNMENT_MINUTES` | **never on Render** | local staging runs only; refused when `RENDER` is set or the staging id equals the production id |
 
 Generate random secrets with: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
 
 ### Accounts: company domain only, no sign-up
 
 - Only addresses on exactly `ALLOWED_EMAIL_DOMAIN` (default `azumco.com`) can sign in. The match is case-insensitive and ignores surrounding spaces. Subdomains and look-alikes such as `azumco.com.evil.com` or `azumco.co` are refused. A refused address gets the same response as a wrong password.
-- There is **no registration**. The only way an account is created is at server start, from `SUPERADMIN_EMAIL` and `TEAM_USERS`. The server refuses to start if any of those emails is off-domain; the error names the variable, never the address.
+- There is **no registration**. Accounts are created at server start from `SUPERADMIN_EMAIL` and `TEAM_USERS`, or by the super admin in Settings. The server refuses to start if any of those emails is off-domain; the error names the variable, never the address.
 - The only user-management API is super-admin only:
   - `GET /api/users`
   - `POST /api/users/:id/temp-password`: type a temporary password or leave it blank to generate one
-  - `PATCH /api/users/:id`: role or active only, never email
-- To add a person, add them to `TEAM_USERS` and restart.
+  - `POST /api/users`: add a teammate (name, company email, role, job title, can receive leads)
+  - `PATCH /api/users/:id`: role, active, job title or can receive leads, never email
+- To add a person, use Settings → Team → Add teammate (or add them to `TEAM_USERS` and restart). They appear everywhere at once: assignment lists, calendar, commission, goals.
+- Only people with **Can receive leads** switched on can be assigned leads and earn commission. Team members get it by default; founders do not.
 - Sessions of any account whose email is off-domain are refused on every request and removed at start.
 
 ### First sign-in
@@ -95,7 +102,7 @@ Generate random secrets with: `node -e "console.log(require('crypto').randomByte
 
 | Setting | Value |
 |---|---|
-| Runtime | Node (20.19+) |
+| Runtime | Node 22 (pinned by `.node-version` and `engines`) |
 | Build command | `npm ci --include=dev && npm run build:all` |
 | Start command | `npm start` |
 | Health check path | `/api/health` |
@@ -145,7 +152,7 @@ Demo data exists only in `server/dev/demo.ts`. It runs only with `DEMO_DATA=true
 
 ### Goals
 
-Only a goal's **owner** can change its status, including marking it done. Everyone else gets 403, super admin included. Founders can still edit the title, dates, owner and support. Every status change is audited.
+Only the person a goal is **assigned to** can change its status, including marking it done. Everyone else gets 403, super admin included. Founders can still edit the title, dates, owner and support. Every status change is audited.
 
 ### Free slots
 
