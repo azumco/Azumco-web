@@ -17,6 +17,7 @@ import { GoogleSheetsBackend, parseServiceAccount } from '../sheets/google.ts';
 import { claimPlacesCall } from '../places/budget.ts';
 import { GooglePlacesClient } from '../places/client.ts';
 import { summarizeExpenses } from '../../shared/rules.ts';
+import { TABS } from '../sheets/schema.ts';
 import { num, bool } from '../sheets/db.ts';
 
 const PREFIX = '__test_';
@@ -34,7 +35,13 @@ async function main() {
     return;
   }
 
-  const backend = new GoogleSheetsBackend(process.env.GOOGLE_SHEETS_SPREADSHEET_ID!, parseServiceAccount(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64!));
+  // Patient retries: this run makes many requests in a short time and can hit
+  // Google's 60-per-minute quota (429), which simply needs waiting out.
+  const backend = new GoogleSheetsBackend(process.env.GOOGLE_SHEETS_SPREADSHEET_ID!, parseServiceAccount(process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64!), {
+    retries: 8,
+    baseDelayMs: 2000,
+    sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 30_000))),
+  });
   const before = (await backend.listTabs()).filter((t) => !t.title.startsWith(PREFIX)).map((t) => t.title).sort();
   console.log(`Connected. ${before.length} existing non-test tab(s) — these are not touched.`);
 
@@ -56,7 +63,7 @@ async function main() {
     const db = new Db(backend, { tabPrefix: PREFIX, cacheTtlMs: 0 });
     await bootstrap(config, db);
     const tabs = (await backend.listTabs()).filter((t) => t.title.startsWith(PREFIX));
-    check('bootstrap creates every tab with headers', tabs.length === 15, `${tabs.length} __test_ tabs`);
+    check('bootstrap creates every tab with headers', tabs.length === Object.keys(TABS).length, `${tabs.length} __test_ tabs`);
     check('seeds users', (await db.all('Users')).length === 3);
 
     // Idempotent restart.

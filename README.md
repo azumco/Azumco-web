@@ -38,6 +38,9 @@ cp .env.example .env     # fill in values (never commit .env)
 npm run dev:server       # API on :8080 (set SHEETS_BACKEND=memory to work without Sheets)
 npm run dev              # site on :3000, proxies /api to :8080
 npm test                 # unit + acceptance tests (in-memory store, fake clock, mocked Google)
+DEMO_DATA=true npm run dev:demo   # local demo on :8095 with fictitious data and mocked Google (refuses if a spreadsheet id is set)
+npm run prod:data -- inspect      # list tabs and any demo/fictitious rows in the real spreadsheet (read-only)
+npm run prod:data -- clean        # back up affected tabs (dated copies), then remove only those rows
 npm run scan:secrets     # checks the real values in .env never appear in dist/, tracked files, git history (or log files you pass)
 npm run test:live        # optional: real-Sheets check on temporary __test_ tabs (add -- --places for ONE real Places search)
 npm run build:all        # site + server bundle (dist/ and dist-server/)
@@ -125,3 +128,25 @@ Expiry is also checked on every read, so the sweep only makes the founders' "lea
 - **Per-founder shares:** the amount still needed ÷ 3, rounded up.
 
 Marking an item paid records the matching expense under the project "Company registration". Undoing it deletes that expense. Admins can mark items paid and add contributions. Only the super admin can edit items and amounts, set the target, toggle GST or delete contributions.
+
+### Real data only
+
+The production spreadsheet holds only real data. On first start it gets these, each once and never duplicated:
+- the team accounts
+- the three real expenses
+- the Zyvia project
+- the registration milestone (the CS quote)
+- the team goals
+- the default settings
+
+Leads, bookings, free slots, contributions and commission start empty.
+
+Demo data exists only in `server/dev/demo.ts`. It runs only with `DEMO_DATA=true`, refuses to start when `GOOGLE_SHEETS_SPREADSHEET_ID` is set or `NODE_ENV=production`, and writes only to an in-memory store.
+
+### Goals
+
+Only a goal's **owner** can change its status, including marking it done. Everyone else gets 403, super admin included. Founders can still edit the title, dates, owner and support. Every status change is audited.
+
+### Free slots
+
+"Add my free slots" previews exactly what it will create. Preview and server use the same planner (`shared/slots.ts`). It merges overlapping time for the same founder instead of duplicating it, and refuses past times and reversed ranges.
