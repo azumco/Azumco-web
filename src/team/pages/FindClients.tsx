@@ -1,16 +1,15 @@
-// Founders: discover local businesses on Google and import chosen ones.
-// Results live in this component's state only: they are never saved, and
-// import sends just the place IDs plus our own category/city.
+// Founders: search Google for local businesses, pick the good ones, import and
+// assign. Results live in this component only — never saved. Import sends
+// just the place IDs plus our own type and city.
 
-import { useState, type FormEvent } from 'react';
-import { Check, ExternalLink, MapPin, Phone, Search } from 'lucide-react';
+import { useMemo, useState, type FormEvent } from 'react';
+import { MapPin } from 'lucide-react';
 import { BUSINESS_CATEGORIES } from '../../../shared/rules';
-import { DEFAULT_STATE } from '../../../shared/india';
-import StateCityPicker from '../components/StateCityPicker';
+import { DEFAULT_STATE, INDIA_CITIES, INDIA_STATES } from '../../../shared/india';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { navigate } from '../router';
-import { Async, Badge, Button, Card, Empty, ErrorText, Field, GoogleAttribution, PageHeader, Select } from '../ui';
+import { Async, Button, Card, Checkbox, ChipGroup, ChoiceChip, Empty, ErrorText, GoogleAttribution, PageTitle, SearchableSelect, Stepper, Tag, cx } from '../ui';
 import type { PlacesUsage, TeamMember } from '../types';
 
 interface Result {
@@ -28,212 +27,179 @@ interface Status {
   defaultWindowHours: number;
 }
 
-function Usage({ usage }: { usage: PlacesUsage }) {
-  const pct = usage.cap ? Math.min(100, (usage.used / usage.cap) * 100) : 100;
-  return (
-    <Card>
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="text-sm text-fg-2">Google lookups this month</p>
-        <p className="tabular-nums text-sm">
-          <span className="text-fg">{usage.used}</span> <span className="text-fg-3">/ {usage.cap}</span>
-        </p>
-      </div>
-      <div className="mt-3 h-1.5 rounded-full bg-bg-3">
-        <div className={`h-1.5 rounded-full ${pct >= 90 ? 'bg-brand' : 'bg-fg-2'}`} style={{ width: `${pct}%` }} />
-      </div>
-      <p className="mt-2 text-xs text-fg-3">
-        {usage.remaining} left · {usage.searches} searches, {usage.lookups} contact lookups
-        {usage.paused && ' · Paused by the super admin'}
-      </p>
-    </Card>
-  );
-}
+/** "Gym / Fitness" → "Gym": the short label stored on the lead. */
+const shortType = (t: string) => t.split('/')[0].trim();
+const area = (address: string) => address.split(',').slice(0, 2).join(',').trim();
+const host = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
+};
 
 export default function FindClients() {
   const status = useApi<Status>('/places/status');
   const team = useApi<{ users: TeamMember[] }>('/team');
-  const [form, setForm] = useState({ category: '', state: DEFAULT_STATE, city: '', limit: '10' });
+  const [form, setForm] = useState({ type: '', state: DEFAULT_STATE, city: '', limit: 10 });
   const [results, setResults] = useState<Result[] | null>(null);
-  const [searched, setSearched] = useState<{ category: string; city: string; state: string; searchedAt: string } | null>(null);
+  const [searched, setSearched] = useState<{ type: string; city: string; searchedAt: string } | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [noWebsite, setNoWebsite] = useState(false);
+  const [hideHave, setHideHave] = useState(false);
   const [assignTo, setAssignTo] = useState('');
   const [hours, setHours] = useState('');
   const [message, setMessage] = useState('');
   const search = useAction();
   const importing = useAction();
 
+  const employees = (team.data?.users ?? []).filter((u) => u.role === 'employee');
+  const defaultHours = String(status.data?.defaultWindowHours ?? 24);
+
   const runSearch = async (e: FormEvent) => {
     e.preventDefault();
     setMessage('');
+    if (!form.type) return search.setError('Choose a business type.');
+    if (!form.state) return search.setError('Choose a state.');
+    if (!form.city) return search.setError('Choose a city.');
     const r = await search.run(() =>
-      api<{ results: Result[]; searchedAt: string }>('POST', '/places/search', { category: form.category, state: form.state, city: form.city, limit: Number(form.limit) }),
+      api<{ results: Result[]; searchedAt: string }>('POST', '/places/search', { category: form.type, state: form.state, city: form.city, limit: form.limit }),
     );
     void status.reload();
     if (r) {
       setResults(r.results);
-      setSearched({ category: form.category.trim(), city: form.city.trim(), state: form.state, searchedAt: r.searchedAt });
+      setSearched({ type: form.type, city: form.city, searchedAt: r.searchedAt });
       setPicked(new Set(r.results.filter((x) => !x.alreadyInLeads).map((x) => x.placeId)));
+      if (!assignTo && employees[0]) setAssignTo(employees[0].id);
     }
   };
+
+  const shown = useMemo(() => (results ?? []).filter((r) => (!noWebsite || !r.website) && (!hideHave || !r.alreadyInLeads)), [results, noWebsite, hideHave]);
 
   const runImport = async () => {
     if (!searched) return;
     const r = await importing.run(() =>
       api<{ imported: number; skipped: number }>('POST', '/places/import', {
-        ...searched,
+        category: shortType(searched.type),
+        city: searched.city,
+        searchedAt: searched.searchedAt,
         placeIds: [...picked],
-        ...(assignTo ? { assignTo, windowHours: Number(hours || status.data?.defaultWindowHours || 24) } : {}),
+        ...(assignTo ? { assignTo, windowHours: Number(hours || defaultHours) } : {}),
       }),
     );
     if (r) {
-      const who = team.data?.users.find((u) => u.id === assignTo)?.name;
+      const who = employees.find((u) => u.id === assignTo)?.name.split(' ')[0];
       setMessage(`Imported ${r.imported} lead${r.imported === 1 ? '' : 's'}${who ? ` and assigned to ${who}` : ''}.${r.skipped ? ` ${r.skipped} were already in your leads.` : ''}`);
       setResults((cur) => cur?.map((x) => (picked.has(x.placeId) ? { ...x, alreadyInLeads: true } : x)) ?? null);
       setPicked(new Set());
     }
   };
 
-  const toggle = (id: string) => {
+  const toggle = (id: string, on: boolean) => {
     const next = new Set(picked);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
+    if (on) next.add(id);
+    else next.delete(id);
     setPicked(next);
   };
 
-  const employees = (team.data?.users ?? []).filter((u) => u.role === 'employee');
-  const defaultHours = String(status.data?.defaultWindowHours ?? 24);
-
   return (
     <div>
-      <PageHeader eyebrow="Find clients" title="Discover" accent="businesses" />
+      <PageTitle title="Find" accent="clients" subtitle="Search Google for local businesses, pick the good ones, hand them to the caller." />
       <Async state={status}>
         {(s) =>
           !s.enabled ? (
-            <Empty title="Find clients is not set up">Add a GOOGLE_PLACES_API_KEY on the server to turn this on.</Empty>
+            <Empty title="Find clients is not set up">Add GOOGLE_PLACES_API_KEY on the server to turn this on.</Empty>
           ) : (
-            <div className="space-y-6">
-              <Usage usage={s.usage} />
+            <div className="space-y-5">
               <Card>
-                <form onSubmit={runSearch} className="grid gap-5 sm:grid-cols-2 sm:items-end lg:grid-cols-[1.2fr_1fr_1fr_100px_auto]">
-                  <Field label="Category" list="place-categories" required placeholder="Gym" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} />
-                  <datalist id="place-categories">
-                    {BUSINESS_CATEGORIES.map((c) => (
-                      <option key={c} value={c} />
-                    ))}
-                  </datalist>
-                  <StateCityPicker required state={form.state} city={form.city} onChange={(next) => setForm({ ...form, ...next })} />
-                  <Select label="Results" value={form.limit} onChange={(e) => setForm({ ...form, limit: e.target.value })} options={['1', '5', '10', '15', '20']} />
-                  <Button type="submit" busy={search.busy} disabled={s.usage.paused || s.usage.remaining <= 0}>
-                    <Search className="h-4 w-4" /> Search
-                  </Button>
+                <form onSubmit={runSearch} className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1.2fr_1fr_1fr_auto_auto] lg:items-end">
+                  <SearchableSelect label="Business type" value={form.type} options={BUSINESS_CATEGORIES} allowCustom required onChange={(v) => setForm({ ...form, type: v })} placeholder="Choose a type" />
+                  <SearchableSelect label="State" value={form.state} options={INDIA_STATES} required onChange={(v) => setForm({ ...form, state: v, city: '' })} />
+                  <SearchableSelect label="City" value={form.city} options={INDIA_CITIES[form.state] ?? []} allowCustom required onChange={(v) => setForm({ ...form, city: v })} placeholder="Choose a city" icon={<MapPin className="h-4 w-4 shrink-0 text-fg-3" />} />
+                  <Stepper label="How many" value={form.limit} min={1} max={20} onChange={(v) => setForm({ ...form, limit: v })} />
+                  <Button type="submit" busy={search.busy} disabled={s.usage.paused || s.usage.remaining <= 0}>Search Google</Button>
                 </form>
-                <p className="mt-4 text-xs text-fg-3">Each search is one paid Google request, whatever the number of results. Searches are limited to India.</p>
+                <p className="mt-4 text-xs text-fg-3">
+                  Each search uses 1 of your {s.usage.cap.toLocaleString('en-IN')} monthly Google calls · {s.usage.remaining.toLocaleString('en-IN')} of {s.usage.cap.toLocaleString('en-IN')} left. Searches stop automatically at the limit.
+                </p>
                 {(s.usage.paused || s.usage.remaining <= 0) && (
                   <div className="mt-4">
-                    <ErrorText>
-                      {s.usage.paused ? 'Google lookups are paused by the super admin.' : "This month's Google limit is used up. It resets on the 1st (IST)."}
-                    </ErrorText>
+                    <ErrorText>{s.usage.paused ? 'Google calls are paused by the super admin.' : "This month's Google limit is used up. It resets on the 1st (IST)."}</ErrorText>
                   </div>
                 )}
-                <div className="mt-4">
-                  <ErrorText>{search.error}</ErrorText>
-                </div>
+                {search.error && <div className="mt-4"><ErrorText>{search.error}</ErrorText></div>}
               </Card>
 
               {results && (
-                <section className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <h2 className="text-xs uppercase tracking-[0.18em] text-fg-3">
-                      {results.length} result{results.length === 1 ? '' : 's'} · {searched?.category} in {searched?.city}, {searched?.state}
-                    </h2>
-                    <GoogleAttribution />
+                <Card className="!p-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+                    <p className="text-base font-medium">
+                      {results.length} × {shortType(searched?.type ?? '')} in {searched?.city} <span className="ml-2 font-normal"><GoogleAttribution /></span>
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <ChoiceChip on={noWebsite} onClick={() => setNoWebsite((v) => !v)}>No website only</ChoiceChip>
+                      <ChoiceChip on={hideHave} onClick={() => setHideHave((v) => !v)}>Hide ones we have</ChoiceChip>
+                    </div>
                   </div>
-                  {results.length === 0 && <Empty title="No businesses found">Try a broader category or a nearby city.</Empty>}
-                  {results.map((r) => {
-                    const on = picked.has(r.placeId);
-                    return (
-                      <label
-                        key={r.placeId}
-                        className={`flex cursor-pointer gap-4 rounded-3xl border bg-bg-2 p-4 transition-colors ${r.alreadyInLeads ? 'cursor-default opacity-60' : on ? 'border-brand/60' : 'border-line hover:border-line-2'}`}
-                      >
-                        <input type="checkbox" className="mt-1 h-5 w-5 shrink-0 accent-[var(--brand)]" disabled={r.alreadyInLeads} checked={on} onChange={() => toggle(r.placeId)} aria-label={`Select ${r.name}`} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium text-fg">{r.name}</p>
-                            {r.alreadyInLeads && (
-                              <Badge tone="muted">
-                                <Check className="h-3 w-3" /> Already in your leads
-                              </Badge>
-                            )}
+                  {shown.length === 0 ? (
+                    <p className="px-5 py-8 text-center text-sm text-fg-3">{results.length === 0 ? 'Google found nothing. Try a broader type or a nearby city.' : 'Nothing matches these filters.'}</p>
+                  ) : (
+                    <ul>
+                      {shown.map((r) => (
+                        <li key={r.placeId} className={cx('grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 border-b border-line px-3 py-3 sm:grid-cols-[auto_1.6fr_1fr_1fr_auto] sm:px-5', r.alreadyInLeads && 'opacity-45')}>
+                          <Checkbox checked={picked.has(r.placeId)} disabled={r.alreadyInLeads} onChange={(v) => toggle(r.placeId, v)} label={`Select ${r.name}`} />
+                          <div className="min-w-0">
+                            <p className="truncate text-fg">{r.name}</p>
+                            <p className="truncate text-xs text-fg-3">{area(r.address) || '—'}</p>
                           </div>
-                          {r.address && (
-                            <p className="mt-1 flex items-start gap-1.5 text-xs text-fg-2">
-                              <MapPin className="mt-0.5 h-3 w-3 shrink-0" />
-                              {r.address}
-                            </p>
-                          )}
-                          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-3">
-                            {r.phone ? (
-                              <span className="inline-flex items-center gap-1">
-                                <Phone className="h-3 w-3" />
-                                {r.phone}
-                              </span>
-                            ) : (
-                              <span>No phone listed</span>
-                            )}
-                            {r.website && (
-                              <a href={r.website} target="_blank" rel="noreferrer noopener" className="inline-flex items-center gap-1 hover:text-fg" onClick={(e) => e.stopPropagation()}>
-                                <ExternalLink className="h-3 w-3" /> Website
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-
-                  {results.some((r) => !r.alreadyInLeads) && (
-                    <Card className="border-line-2 bg-bg-2/95 backdrop-blur sm:sticky sm:bottom-4 sm:z-30">
-                      <div className="grid gap-4 sm:grid-cols-[1fr_160px_auto] sm:items-end">
-                        <Select
-                          label="Assign to (optional)"
-                          value={assignTo}
-                          onChange={(e) => setAssignTo(e.target.value)}
-                          options={[{ value: '', label: 'Leave unclaimed' }, ...employees.map((u) => ({ value: u.id, label: u.name }))]}
-                        />
-                        <Select
-                          label="Contact within"
-                          value={hours || defaultHours}
-                          disabled={!assignTo}
-                          onChange={(e) => setHours(e.target.value)}
-                          options={[{ value: '12', label: '12 hours' }, { value: '24', label: '24 hours' }, { value: '48', label: '48 hours' }]}
-                        />
-                        <Button busy={importing.busy} disabled={!picked.size} onClick={runImport}>
-                          Import {picked.size || ''}
-                        </Button>
-                      </div>
-                      <p className="mt-3 text-xs text-fg-3">Only the Google place ID is saved. The contact is looked up live when someone opens the lead.</p>
-                      <div className="mt-3">
-                        <ErrorText>{importing.error}</ErrorText>
-                      </div>
-                    </Card>
+                          <span className="col-start-2 text-sm tabular-nums text-fg-2 sm:col-start-auto">{r.alreadyInLeads ? '—' : r.phone || 'No phone listed'}</span>
+                          <span className="col-start-2 text-sm text-fg-2 sm:col-start-auto">
+                            {r.alreadyInLeads ? '—' : r.website ? <a href={r.website} target="_blank" rel="noreferrer noopener" className="hover:text-fg">{host(r.website)}</a> : <Tag tone="warn">No website</Tag>}
+                          </span>
+                          <span className="col-start-2 sm:col-start-auto">{r.alreadyInLeads && <Tag tone="muted">Already in leads</Tag>}</span>
+                        </li>
+                      ))}
+                    </ul>
                   )}
+                  <div className="flex items-center justify-between px-5 py-3 text-sm text-fg-3">
+                    <span>Showing {shown.length} of {results.length}</span>
+                    {shown.length < results.length && (
+                      <button type="button" className="min-h-11 text-brand" onClick={() => { setNoWebsite(false); setHideHave(false); }}>Show all</button>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {results && results.some((r) => !r.alreadyInLeads) && (
+                <Card className="border-brand/40 sm:sticky sm:bottom-4 sm:z-30">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xl font-medium">{picked.size} selected</p>
+                      <p className="text-xs text-fg-3">Only Google's place ID is saved. Names and numbers load live for the caller until they confirm them.</p>
+                    </div>
+                    <Button busy={importing.busy} disabled={!picked.size} onClick={runImport}>
+                      Import {picked.size}{assignTo ? ' & assign' : ''}
+                    </Button>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:gap-8">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-fg-3">Assign to</span>
+                      <ChipGroup options={[...employees.map((u) => ({ value: u.id, label: u.name.split(' ')[0] })), { value: '', label: 'Keep unassigned' }]} value={assignTo} onChange={setAssignTo} required />
+                    </div>
+                    {assignTo && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm text-fg-3">Must call within</span>
+                        <ChipGroup options={[{ value: '12', label: '12 hours' }, { value: '24', label: '24 hours' }, { value: '48', label: '48 hours' }]} value={hours || defaultHours} onChange={(v) => setHours(v || defaultHours)} required />
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-3"><ErrorText>{importing.error}</ErrorText></div>
                   {message && (
-                    <p role="status" className="text-sm text-fg">
-                      {message}{' '}
-                      <a
-                        href="/team/leads"
-                        className="text-brand"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          navigate('/team/leads');
-                        }}
-                      >
-                        View leads
-                      </a>
+                    <p role="status" className="mt-3 text-sm text-good">
+                      {message} <a href="/team/leads" className="text-brand" onClick={(e) => { e.preventDefault(); navigate('/team/leads'); }}>View leads</a>
                     </p>
                   )}
-                </section>
+                </Card>
               )}
             </div>
           )
@@ -242,4 +208,3 @@ export default function FindClients() {
     </div>
   );
 }
-

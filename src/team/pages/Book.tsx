@@ -1,181 +1,157 @@
-// Book a discovery call: pick a lead, a founder (or any), then an open slot.
+// Book a discovery call: for which lead, with whom, which day, which time, how.
 
-import { useMemo, useState, type FormEvent } from 'react';
-import { CalendarCheck } from 'lucide-react';
-import { formatDate, fromIst, istDate } from '../../../shared/time';
+import { useMemo, useState } from 'react';
+import { ChevronRight, Store } from 'lucide-react';
+import { weekday } from '../../../shared/slots';
+import { formatDate, istDate } from '../../../shared/time';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
-import { navigate } from '../router';
-import { Async, Button, Card, Chip, Empty, ErrorText, Field, Modal, PageHeader, Select, TextArea } from '../ui';
+import { Async, Button, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, Segmented, cx } from '../ui';
 import { isFounder, type LeadsResponse, type Slot, type TeamUser } from '../types';
 
-const MODES = ['Zoho Cliq', 'Phone call', 'In person'] as const;
-const weekdayName = (d: string) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(`${d}T00:00:00Z`).getUTCDay()];
+const DAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MODES = [{ value: 'Zoho Cliq', label: 'Zoho Cliq' }, { value: 'Phone call', label: 'Phone' }, { value: 'In person', label: 'In person' }] as const;
+const fmt = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+};
 
 export default function Book({ user }: { user: TeamUser }) {
-  const initialLead = new URLSearchParams(window.location.search).get('lead') ?? '';
-  const [leadId, setLeadId] = useState(initialLead);
+  const [leadId, setLeadId] = useState(new URLSearchParams(window.location.search).get('lead') ?? '');
+  const [pickingLead, setPickingLead] = useState(false);
   const [founder, setFounder] = useState('any');
-  const [picked, setPicked] = useState<Slot | null>(null);
+  const [day, setDay] = useState('');
+  const [time, setTime] = useState<Slot | null>(null);
+  const [form, setForm] = useState({ clientName: '', phone: '', mode: 'Zoho Cliq' as (typeof MODES)[number]['value'], link: '', notes: '' });
   const [done, setDone] = useState('');
   const today = istDate();
   const leads = useApi<LeadsResponse>('/leads');
   const slots = useApi<{ slots: Slot[]; founders: { id: string; name: string }[] }>(`/slots?from=${today}&days=14`);
-  const [form, setForm] = useState({ clientName: '', phone: '', mode: 'Zoho Cliq' as (typeof MODES)[number], link: '', notes: '' });
   const { busy, error, setError, run } = useAction();
 
-  const myLeads = (leads.data?.leads ?? []).filter((l) => l.status !== 'Won' && l.status !== 'Lost');
-  const lead = myLeads.find((l) => l.id === leadId);
+  const open = (leads.data?.leads ?? []).filter((l) => l.status !== 'Won' && l.status !== 'Lost');
+  const lead = open.find((l) => l.id === leadId);
+  const nameOf = (id: string) => slots.data?.founders.find((f) => f.id === id)?.name.split(' ')[0] ?? '';
 
-  // "Any founder" merges times: a time is open if at least one founder is free.
+  // "Any founder": a time is open if at least one founder is free then.
   const visible = useMemo(() => {
     const list = slots.data?.slots ?? [];
     if (founder !== 'any') return list.filter((s) => s.founderId === founder);
-    const byTime = new Map<string, Slot>();
+    const by = new Map<string, Slot>();
     for (const s of list) {
-      const key = `${s.date}|${s.start}`;
-      const cur = byTime.get(key);
-      if (!cur || (cur.booked && !s.booked)) byTime.set(key, { ...s, founderId: 'any' });
+      const k = `${s.date}|${s.start}`;
+      const cur = by.get(k);
+      if (!cur || (cur.booked && !s.booked)) by.set(k, { ...s, founderId: s.booked ? s.founderId : 'any' });
     }
-    return [...byTime.values()].sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
+    return [...by.values()].sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
   }, [slots.data, founder]);
-
   const days = [...new Set(visible.map((s) => s.date))];
+  const activeDay = day && days.includes(day) ? day : days[0] ?? '';
+  const times = visible.filter((s) => s.date === activeDay);
+  const takenNote = times.filter((s) => s.booked).map((s) => fmt(s.start));
+  const withWhom = [...new Set((slots.data?.slots ?? []).filter((s) => s.date === activeDay && !s.booked).map((s) => nameOf(s.founderId)))];
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!picked || !leadId) return;
-    const r = await run(() =>
-      api<{ booking: { founderId: string; date: string; start: string } }>('POST', '/bookings', {
-        leadId,
-        founderId: picked.founderId,
-        date: picked.date,
-        start: picked.start,
-        ...form,
-      }),
-    );
+  const book = async () => {
+    if (!lead || !time) return setError('Choose a lead and a time.');
+    const r = await run(() => api<{ booking: { founderId: string; date: string; start: string } }>('POST', '/bookings', { leadId, founderId: time.founderId, date: time.date, start: time.start, ...form }));
     void slots.reload();
     if (r) {
-      const who = slots.data?.founders.find((f) => f.id === r.booking.founderId)?.name ?? 'a founder';
-      setDone(`Booked with ${who} on ${formatDate(r.booking.date)} at ${r.booking.start} IST.`);
-      setPicked(null);
+      setDone(`Booked with ${nameOf(r.booking.founderId)} on ${formatDate(r.booking.date)} at ${fmt(r.booking.start)}. The founder has been notified.`);
+      setTime(null);
     }
   };
 
   return (
-    <div>
-      <PageHeader eyebrow="Discovery call" title="Book a" accent="call" />
-      {done && (
-        <Card className="mb-6 border-brand/50">
-          <p className="flex items-center gap-2 text-sm">
-            <CalendarCheck className="h-4 w-4 text-brand" />
-            {done}
-          </p>
-          {lead && (
-            <Button variant="ghost" size="sm" className="mt-3" onClick={() => navigate(`/team/leads/${lead.id}`)}>
-              Back to lead
-            </Button>
-          )}
-        </Card>
-      )}
+    <div className="mx-auto max-w-xl">
+      <h1 className="text-[2.2rem] font-medium leading-tight tracking-[-0.035em]">
+        Book a <span className="font-serif font-normal italic tracking-normal text-brand">call</span>
+      </h1>
+      <p className="mt-1 text-fg-2">Pick a free slot. The founder gets notified.</p>
 
-      <Card>
+      {done && <p role="status" className="mt-4 rounded-2xl border border-good/40 bg-good/10 px-4 py-3 text-sm">{done}</p>}
+
+      <button type="button" onClick={() => setPickingLead(true)} className="mt-5 flex w-full items-center gap-4 rounded-3xl border border-line bg-bg-2 p-4 text-left hover:border-line-2">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-bg-3 text-fg-3"><Store className="h-4.5 w-4.5" /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-[11px] uppercase tracking-[0.16em] text-fg-3">For</span>
+          <span className="block truncate font-medium">{lead ? lead.label : 'Choose a lead'}</span>
+        </span>
+        <ChevronRight className="h-4 w-4 text-fg-3" />
+      </button>
+
+      <Async state={slots} label="Loading free slots…">
+        {({ founders }) =>
+          (slots.data?.slots ?? []).length === 0 ? (
+            <div className="mt-6"><Empty title="No free slots in the next two weeks">{isFounder(user) ? 'Add your free slots in the Calendar.' : 'Ask a founder to add free slots.'}</Empty></div>
+          ) : (
+            <div className="mt-6 space-y-6">
+              <ChipGroup label="With" options={[{ value: 'any', label: 'Any founder' }, ...founders.map((f) => ({ value: f.id, label: f.name.split(' ')[0] }))]} value={founder} onChange={(v) => { setFounder(v || 'any'); setTime(null); }} required />
+              <div>
+                <p className="mb-2 text-sm font-medium">Day</p>
+                {days.length === 0 ? (
+                  <p className="text-sm text-fg-3">No free days for this founder.</p>
+                ) : (
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {days.map((d) => (
+                      <button key={d} type="button" aria-pressed={d === activeDay} onClick={() => { setDay(d); setTime(null); }} className={cx('flex min-h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl border', d === activeDay ? 'border-brand bg-brand/10 text-brand' : 'border-line-2 text-fg')}>
+                        <span className="text-[10px] uppercase tracking-[0.14em] opacity-70">{DAY[weekday(d)]}</span>
+                        <span className="text-xl font-medium">{d.slice(8)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {activeDay && (
+                <div>
+                  <p className="mb-2 text-sm font-medium">Free times · {DAY[weekday(activeDay)]} {activeDay.slice(8)}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {times.map((s) => (
+                      <ChoiceChip key={`${s.founderId}${s.start}`} on={time?.start === s.start && time?.date === s.date} disabled={s.booked || !lead} onClick={() => { setTime(s); setForm((f) => ({ ...f, clientName: f.clientName || lead?.contactPerson || lead?.businessName || '' })); }} className={s.booked ? 'line-through' : ''}>
+                        {fmt(s.start)}
+                      </ChoiceChip>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs text-fg-3">
+                    {withWhom.length ? `Free: ${withWhom.join(', ')}` : ''}
+                    {takenNote.length ? ` · ${takenNote.join(', ')} taken` : ''}
+                    {!lead && ' · choose a lead first'}
+                  </p>
+                </div>
+              )}
+              <Segmented label="How" options={MODES} value={form.mode} onChange={(v) => setForm({ ...form, mode: v })} />
+              <Field label="Client name" value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
+              <Field label="Their phone" type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
+              {form.mode === 'Zoho Cliq' && <Field label="Zoho Cliq link" type="url" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} />}
+              <ErrorText>{error}</ErrorText>
+              <div className="sticky bottom-16 z-30 -mx-5 bg-gradient-to-t from-bg from-60% to-transparent px-5 pb-3 pt-8 md:static md:m-0 md:bg-none md:p-0">
+                <Button busy={busy} disabled={!lead || !time || !form.clientName} className="w-full shadow-lg shadow-black/40 md:shadow-none" onClick={book}>
+                  {time ? `Book ${DAY[weekday(time.date)]} ${formatDate(time.date).slice(0, 6)} · ${fmt(time.start)}` : 'Pick a time'}
+                </Button>
+              </div>
+            </div>
+          )
+        }
+      </Async>
+
+      <Modal title="Which" accent="lead?" open={pickingLead} onClose={() => setPickingLead(false)}>
         <Async state={leads}>
           {() =>
-            myLeads.length === 0 ? (
-              <p className="text-sm text-fg-2">{isFounder(user) ? 'There are no open leads to book for.' : 'You have no leads to book a call for yet.'}</p>
+            open.length === 0 ? (
+              <Empty title="No open leads" />
             ) : (
-              <Select
-                label="Lead"
-                value={leadId}
-                onChange={(e) => setLeadId(e.target.value)}
-                options={[{ value: '', label: 'Choose a lead…' }, ...myLeads.map((l) => ({ value: l.id, label: l.label }))]}
-              />
+              <ul className="space-y-2">
+                {open.map((l) => (
+                  <li key={l.id}>
+                    <button type="button" onClick={() => { setLeadId(l.id); setPickingLead(false); setTime(null); }} className={cx('flex min-h-12 w-full items-center justify-between rounded-2xl border px-4 text-left', l.id === leadId ? 'border-brand text-brand' : 'border-line text-fg')}>
+                      <span className="truncate">{l.label}</span>
+                      <span className="text-xs text-fg-3">{l.status}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )
           }
         </Async>
-      </Card>
-
-      <div className="mt-6">
-        <Async state={slots} label="Loading open slots…">
-          {({ founders }) => (
-            <div className="space-y-5">
-              <div className="flex flex-wrap gap-2">
-                <Chip selected={founder === 'any'} onClick={() => setFounder('any')}>
-                  Any available founder
-                </Chip>
-                {founders.map((f) => (
-                  <Chip key={f.id} selected={founder === f.id} onClick={() => setFounder(f.id)}>
-                    {f.name}
-                  </Chip>
-                ))}
-              </div>
-              {days.length === 0 ? (
-                <Empty title="No open slots in the next two weeks">Ask a founder to add available hours in the Calendar.</Empty>
-              ) : (
-                days.map((d) => (
-                  <section key={d}>
-                    <h2 className="mb-2 text-xs uppercase tracking-[0.18em] text-fg-3">
-                      {weekdayName(d)} · {formatDate(d)}
-                    </h2>
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-6 lg:grid-cols-8">
-                      {visible
-                        .filter((s) => s.date === d)
-                        .map((s) => (
-                          <button
-                            key={`${s.founderId}${s.start}`}
-                            type="button"
-                            disabled={s.booked || !leadId}
-                            onClick={() => {
-                              setError('');
-                              setDone('');
-                              setForm((f) => ({ ...f, clientName: f.clientName || lead?.businessName || lead?.contactPerson || '' }));
-                              setPicked(s);
-                            }}
-                            className={`min-h-12 rounded-2xl border text-sm tabular-nums transition-colors ${
-                              s.booked
-                                ? 'cursor-not-allowed border-line text-fg-3 line-through'
-                                : 'border-line-2 text-fg hover:border-brand disabled:cursor-not-allowed disabled:opacity-50'
-                            }`}
-                            aria-label={`${s.start} ${s.booked ? 'booked' : 'open'}`}
-                          >
-                            {s.start}
-                          </button>
-                        ))}
-                    </div>
-                  </section>
-                ))
-              )}
-              {!leadId && days.length > 0 && <p className="text-xs text-fg-3">Choose a lead first to pick a time.</p>}
-            </div>
-          )}
-        </Async>
-      </div>
-
-      <Modal title={picked ? `Book ${formatDate(picked.date)} · ${picked.start} IST` : 'Book'} open={Boolean(picked)} onClose={() => setPicked(null)}>
-        <form onSubmit={submit} className="space-y-5">
-          {picked && fromIst(picked.date, picked.start).getTime() - Date.now() < 60 * 60_000 && (
-            <p className="text-sm text-brand-2">This call starts within the hour.</p>
-          )}
-          <Field label="Client name" required value={form.clientName} onChange={(e) => setForm({ ...form, clientName: e.target.value })} />
-          <Field label="Client phone" type="tel" inputMode="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} />
-          <fieldset>
-            <legend className="text-xs uppercase tracking-[0.18em] text-fg-3">Meeting</legend>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {MODES.map((m) => (
-                <Chip key={m} selected={form.mode === m} onClick={() => setForm({ ...form, mode: m })}>
-                  {m}
-                </Chip>
-              ))}
-            </div>
-          </fieldset>
-          {form.mode === 'Zoho Cliq' && <Field label="Zoho Cliq meeting link" type="url" value={form.link} onChange={(e) => setForm({ ...form, link: e.target.value })} />}
-          <TextArea label="Notes" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
-          <ErrorText>{error}</ErrorText>
-          <Button type="submit" busy={busy} className="w-full">
-            Confirm booking
-          </Button>
-        </form>
       </Modal>
     </div>
   );

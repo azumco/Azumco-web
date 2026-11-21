@@ -1,8 +1,12 @@
 @import "tailwindcss";
 @import "./theme.css";
 
-/* The team area ships its own stylesheet, loaded only on /team. */
+/* The team area ships its own stylesheet, loaded only on /team. Server and
+   shared code never render public markup, so their text must not add classes. */
 @source not "./team";
+@source not "../server";
+@source not "../shared";
+@source not "../*.md";
 
 /*
   Design tokens. Dark is the default theme.
