@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "./theme.css";
+
+/* The team area ships its own stylesheet, loaded only on /team. */
+@source not "./team";
 
 /*
   Design tokens. Dark is the default theme.
@@ -18,22 +22,6 @@
   --brand-2: #ff8a33;
   --brand-deep: #e85400;
   color-scheme: dark;
-}
-
-@theme inline {
-  --color-bg: var(--bg);
-  --color-bg-2: var(--bg-2);
-  --color-bg-3: var(--bg-3);
-  --color-fg: var(--fg);
-  --color-fg-2: var(--fg-2);
-  --color-fg-3: var(--fg-3);
-  --color-line: var(--line);
-  --color-line-2: var(--line-2);
-  --color-brand: var(--brand);
-  --color-brand-2: var(--brand-2);
-  --color-brand-deep: var(--brand-deep);
-  --font-sans: 'Satoshi', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: 'Instrument Serif', Georgia, serif;
 }
 
 @layer base {

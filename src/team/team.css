@@ -1,0 +1,11 @@
+/*
+  Team-area stylesheet. Loaded only with the lazy /team chunk, so the public
+  site's CSS is unchanged. Same tokens as the public site: the variables come
+  from index.css (:root), the utility mapping from theme.css. No preflight here
+  — index.css already applies it.
+*/
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "../theme.css";
+
+@source "./";

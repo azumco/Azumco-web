@@ -26,3 +26,17 @@ Routes: `/` (home), `/terms`, `/privacy`, `/refund-policy`. `public/_redirects` 
 ## Before going live
 
 - Replace placeholder client names and stats in `src/content.ts`.
+
+## Team area and server
+
+The site also has a private team area at `/team` (entry: click the large outlined "AZUMCO" at the bottom of the footer). It is served by a small Express server in `server/` that stores its data in Google Sheets.
+
+```bash
+cp .env.example .env     # fill in values; for local work without Sheets set SHEETS_BACKEND=memory
+npm run dev:server       # API on :8080 (in a second terminal: npm run dev, which proxies /api)
+npm test                 # server tests
+npm run build:all        # site + server bundle (dist/ and dist-server/)
+npm start                # serve both, as on Render
+```
+
+Render (one Web Service): build `npm ci --include=dev && npm run build:all`, start `npm start`, health check `/api/health`.

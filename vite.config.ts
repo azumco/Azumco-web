@@ -4,6 +4,11 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // Development only: forward the team API to `npm run dev:server` (port 8080).
+  // changeOrigin stays false so the API's same-origin check sees this host.
+  server: {
+    proxy: { '/api': { target: 'http://127.0.0.1:8080', changeOrigin: false } },
+  },
   build: {
     target: 'es2020',
     rollupOptions: {

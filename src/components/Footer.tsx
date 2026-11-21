@@ -87,9 +87,15 @@ export default function Footer() {
         </div>
       </Container>
 
+      {/*
+        Team entry. Deliberately not a link or button: no hover style, no
+        cursor change, no focus stop and nothing for crawlers to follow — it
+        looks and reads exactly as before. The team area also works at /team.
+      */}
       <div
         aria-hidden="true"
-        className="pointer-events-none select-none text-center text-[23vw] font-bold leading-[0.75] tracking-[-0.06em] text-transparent [-webkit-text-stroke:1px_var(--line-2)] translate-y-[8%]"
+        onClick={() => window.location.assign('/team')}
+        className="select-none text-center text-[23vw] font-bold leading-[0.75] tracking-[-0.06em] text-transparent [-webkit-tap-highlight-color:transparent] [-webkit-text-stroke:1px_var(--line-2)] translate-y-[8%]"
       >
         AZUMCO
       </div>
