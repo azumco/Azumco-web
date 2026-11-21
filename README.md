@@ -38,6 +38,7 @@ cp .env.example .env     # fill in values (never commit .env)
 npm run dev:server       # API on :8080 (set SHEETS_BACKEND=memory to work without Sheets)
 npm run dev              # site on :3000, proxies /api to :8080
 npm test                 # unit + acceptance tests (in-memory store, fake clock, mocked Google)
+npm run scan:secrets     # checks the real values in .env never appear in dist/, tracked files, git history (or log files you pass)
 npm run test:live        # optional: real-Sheets check on temporary __test_ tabs (add -- --places for ONE real Places search)
 npm run build:all        # site + server bundle (dist/ and dist-server/)
 npm start                # serve both, as on Render
@@ -61,13 +62,25 @@ On the first start the server creates every tab and header itself, then inserts 
 | `GOOGLE_SHEETS_SPREADSHEET_ID` | yes | |
 | `GOOGLE_SERVICE_ACCOUNT_JSON_BASE64` | yes | |
 | `SESSION_SECRET` | yes | 32+ random characters; changing it signs everyone out |
-| `SUPERADMIN_EMAIL`, `SUPERADMIN_NAME` | yes | |
+| `ALLOWED_EMAIL_DOMAIN` | no | default `azumco.com`; only this exact domain can sign in |
+| `SUPERADMIN_EMAIL`, `SUPERADMIN_NAME` | yes | email must be on the allowed domain |
 | `SUPERADMIN_INITIAL_PASSWORD` | first start only | 12+ characters; remove after first sign-in |
-| `TEAM_USERS` | yes | JSON: `[{"name":"…","email":"…","role":"admin"},{"name":"…","email":"…","role":"employee"}]` |
+| `TEAM_USERS` | yes | JSON: `[{"name":"…","email":"…","role":"admin"},{"name":"…","email":"…","role":"employee"}]`, all on the allowed domain |
 | `GOOGLE_PLACES_API_KEY` | no | enables Find clients |
 | `CRON_TOKEN` | recommended | 32+ random characters; enables the maintenance endpoint |
 
 Generate random secrets with: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`
+
+### Accounts: company domain only, no sign-up
+
+- Only addresses on exactly `ALLOWED_EMAIL_DOMAIN` (default `azumco.com`) can sign in. The match is case-insensitive and ignores surrounding spaces. Subdomains and look-alikes such as `azumco.com.evil.com` or `azumco.co` are refused. A refused address gets the same response as a wrong password.
+- There is **no registration**. The only way an account is created is at server start, from `SUPERADMIN_EMAIL` and `TEAM_USERS`. The server refuses to start if any of those emails is off-domain; the error names the variable, never the address.
+- The only user-management API is super-admin only:
+  - `GET /api/users`
+  - `POST /api/users/:id/temp-password`: type a temporary password or leave it blank to generate one
+  - `PATCH /api/users/:id`: role or active only, never email
+- To add a person, add them to `TEAM_USERS` and restart.
+- Sessions of any account whose email is off-domain are refused on every request and removed at start.
 
 ### First sign-in
 
@@ -103,3 +116,12 @@ Expiry is also checked on every read, so the sweep only makes the founders' "lea
 - Every tab has `id`, `createdAt`, `updatedAt` and `updatedBy`. Columns are matched by header name, so you can reorder them in the sheet. Do not rename headers or edit ids.
 - Find clients stores **only Google place IDs**, plus our own search inputs (category, city). Google's Maps Platform Terms (§3.2.3) do not allow storing names, addresses, phones or websites. The contact is fetched live whenever someone opens an unconfirmed lead. It is saved only after a team member reaches the business and types in what they confirmed.
 - One hard monthly cap (IST calendar month) covers every paid Places call. The super admin can change it or pause all lookups in Settings.
+
+### Milestone (founders only)
+
+`/team/milestone` shows how much is still needed to register the company. The figures come from the expense summary:
+- **Funds available:** cash after paying members. This already includes founder contributions, which count as company money.
+- **Still needed:** unpaid line items minus funds available.
+- **Per-founder shares:** the amount still needed ÷ 3, rounded up.
+
+Marking an item paid records the matching expense under the project "Company registration". Undoing it deletes that expense. Admins can mark items paid and add contributions. Only the super admin can edit items and amounts, set the target, toggle GST or delete contributions.
