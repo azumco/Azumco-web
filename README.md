@@ -48,6 +48,11 @@ STAGING_MODE=true npm run staging -- inspect      # staging sheet: row counts (n
 STAGING_MODE=true npm run staging:walk -- ...     # staging end-to-end walk over HTTP (see docs/RELEASE.md)
 npm run prod:data -- snapshot <file>              # production: copy of every tab (secret columns redacted) + schema check
 npm run reset-password -- <email>                  # locked-out super admin: local-only reset (see Locked out?)
+npm run db:migrate                                 # Postgres: apply migrations to DB_SCHEMA (also runs at start)
+npm run db:import-from-sheets -- --dry-run         # Postgres: copy the Sheet in (idempotent; --staging --schema staging for staging)
+npm run db:backup                                  # Postgres: every table to backups/<schema>-<time>/ (git-ignored; contains hashes)
+npm run db:restore -- backups/<folder>             # Postgres: load a backup into an empty schema
+npm run test:pg                                    # the whole test suite on Postgres, in throwaway schemas (needs DATABASE_URL)
 npm start                # serve both, as on Render
 ```
 
@@ -138,6 +143,10 @@ The only external job needed is a free uptime monitor (e.g. UptimeRobot) that ke
 The token-protected endpoint stays as a manual or backup trigger; running it alongside the in-process scheduler is safe (each expiry is recorded, notified and audited exactly once). If a scheduler cannot send headers, `?token=<CRON_TOKEN>` also works, but URLs can end up in logs, so prefer the header.
 
 **Fallback if keep-warm pinging stops being viable:** move the public site to static hosting (Netlify or Cloudflare Pages, from `dist/`, using `public/_redirects`) so visitors never wait, and keep this service for `/team` and `/api` only.
+
+### Data store: Google Sheets or Postgres
+
+`DATA_BACKEND=sheets` (default) keeps everything in the Google Sheet. `DATA_BACKEND=postgres` uses Supabase Postgres via `DATABASE_URL` (session pooler) with real constraints (unique emails, no double-booking, one expiry per lead and deadline, an atomic Places cap), Row Level Security on every table, an append-only audit log and serialized write transactions. Same app, same UI. How to switch, roll back, back up and restore: docs/RELEASE.md §9.
 
 ### Data and Google's terms
 
