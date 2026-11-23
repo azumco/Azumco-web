@@ -257,7 +257,7 @@ function LogCall({ lead, msLeft, onLogged, wide, numbered }: { lead: Lead; msLef
 
 // ─── Founder: edit ────────────────────────────────────────────────────────
 
-function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; founder: boolean; open: boolean; onClose: () => void; onSaved: () => void }) {
+function EditLead({ lead, founder, own, open, onClose, onSaved }: { lead: Lead; founder: boolean; own?: boolean; open: boolean; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState(lead);
   useEffect(() => setF(lead), [lead, open]);
   const { busy, error, run } = useAction();
@@ -266,7 +266,11 @@ function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; found
 
   const save = async () => {
     const employeePart = { rating: f.rating, decisionMaker: f.decisionMaker, need: f.need, nextStep: f.nextStep, followUpDate: f.followUpDate, discoveryCallDate: f.discoveryCallDate };
-    const body = founder
+    // A team member may correct the business details of a lead they added themselves.
+    const ownDetails = { businessName: f.businessName, contactPerson: f.contactPerson, phone: f.phone, category: f.category, city: f.city, websiteOrInstagram: f.websiteOrInstagram };
+    const body = !founder && own
+      ? { ...employeePart, ...ownDetails }
+      : founder
       ? {
           ...employeePart,
           ...(locked ? {} : { businessName: f.businessName, contactPerson: f.contactPerson, phone: f.phone }),
@@ -283,7 +287,7 @@ function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; found
   return (
     <Modal title="Edit" accent="lead" open={open} onClose={onClose} wide>
       <div className="space-y-5">
-        {founder && !locked && (
+        {(founder || own) && !locked && (
           <>
             <Field label="Business name" value={f.businessName} onChange={set('businessName')} />
             <div className="grid gap-5 sm:grid-cols-2">
@@ -292,12 +296,13 @@ function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; found
             </div>
           </>
         )}
-        {founder && (
+        {(founder || own) && (
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Category" value={f.category} onChange={set('category')} />
             <Field label="City / area" value={f.city} onChange={set('city')} />
           </div>
         )}
+        {own && !founder && <Field label="Website / Instagram" value={f.websiteOrInstagram} onChange={set('websiteOrInstagram')} />}
         <Field label="Decision maker" value={f.decisionMaker} onChange={set('decisionMaker')} />
         <Field label="Need / problem" value={f.need} onChange={set('need')} />
         <Field label="Discovery call date" type="date" value={f.discoveryCallDate} onChange={set('discoveryCallDate')} />
@@ -413,7 +418,7 @@ export function LeadPanel({ id, user, embedded, fullWidth, onChanged }: { id: st
               </div>
             )}
 
-            <EditLead lead={lead} founder={founder} open={editing} onClose={() => setEditing(false)} onSaved={reload} />
+            <EditLead lead={lead} founder={founder} own={!founder && lead.addedBy === user.id} open={editing} onClose={() => setEditing(false)} onSaved={reload} />
             {founder && <AssignDialog leadIds={[lead.id]} open={assigning} onClose={() => setAssigning(false)} onDone={reload} requireDeadline={lead.isGoogle} />}
           </div>
         );

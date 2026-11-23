@@ -47,4 +47,36 @@ describe('Team member adds a lead', () => {
     // Founders still see the exact match.
     expect((await admin.client.req('POST', '/api/leads', { businessName: 'Again', phone: '9826066666' })).body.error).toContain('Secret Founder Lead');
   });
+
+  it('can correct the details of leads they added, but not of leads a founder assigned', async () => {
+    h = await startHarness();
+    const owner = await superAdmin(h);
+    const admin = await memberClient(h, owner, ADMIN_EMAIL);
+    const staff = await memberClient(h, owner, EMPLOYEE_EMAIL);
+    const own = (await staff.client.req('POST', '/api/leads', { businessName: 'Typo Cafe', phone: '98260 77777', city: 'Indor' })).body.id;
+    const assigned = (await admin.client.req('POST', '/api/leads', { businessName: 'Founder Gym', assignTo: staff.id })).body.id;
+    const get = async (id: string) => (await staff.client.req('GET', `/api/leads/${id}`)).body.lead;
+
+    // Own lead: fix the name, city and phone.
+    let l = await get(own);
+    const fixed = await staff.client.req('PATCH', `/api/leads/${own}`, { businessName: 'Tipo Cafe', city: 'Indore', phone: '98260 77778', expectedUpdatedAt: l.updatedAt });
+    expect(fixed.status).toBe(200);
+    l = await get(own);
+    expect(l).toMatchObject({ businessName: 'Tipo Cafe', city: 'Indore', phone: '+919826077778' });
+    const audit = (await owner.req('GET', '/api/audit')).body.entries as { action: string; entityId: string }[];
+    expect(audit.some((e) => e.action === 'lead.update' && e.entityId === own)).toBe(true);
+    // Still can't use the Google source or blank the name.
+    expect((await staff.client.req('PATCH', `/api/leads/${own}`, { source: 'Google Places' })).status).toBe(400);
+    expect((await staff.client.req('PATCH', `/api/leads/${own}`, { businessName: '' })).status).toBe(400);
+
+    // Assigned lead: details refused, call details still fine.
+    const a = await get(assigned);
+    const refused = await staff.client.req('PATCH', `/api/leads/${assigned}`, { businessName: 'Renamed', expectedUpdatedAt: a.updatedAt });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toMatch(/leads you added yourself/);
+    expect((await staff.client.req('PATCH', `/api/leads/${assigned}`, { need: 'Website', expectedUpdatedAt: a.updatedAt })).status).toBe(200);
+    expect((await get(assigned)).businessName).toBe('Founder Gym');
+    // Deal fields stay founder-only, on any lead.
+    expect((await staff.client.req('PATCH', `/api/leads/${own}`, { status: 'Won' })).status).toBe(400);
+  });
 });

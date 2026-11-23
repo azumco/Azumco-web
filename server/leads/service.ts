@@ -374,6 +374,9 @@ export const founderPatchSchema = z
   .strict();
 
 export const employeePatchSchema = z.object({ ...employeeFields, expectedUpdatedAt: z.string() }).partial().strict();
+/** A team member may also correct the business details, but only on leads they added themselves (checked in updateLead). */
+const employeeOwnPatchSchema = z.object({ ...teamFields, ...employeeFields, expectedUpdatedAt: z.string() }).partial().strict();
+const TEAM_FIELD_KEYS = Object.keys(teamFields);
 
 export const callSchema = z.object({
   outcome: z.enum(CALL_OUTCOMES.map((o) => o.value) as [string, ...string[]]),
@@ -556,7 +559,7 @@ export async function createLead(db: Db, actor: SessionUser, raw: z.infer<typeof
 
 export async function updateLead(db: Db, actor: SessionUser, id: string, body: unknown): Promise<Row> {
   const founder = isFounder(actor);
-  const parsed = (founder ? founderPatchSchema : employeePatchSchema).safeParse(body);
+  const parsed = (founder ? founderPatchSchema : employeeOwnPatchSchema).safeParse(body);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     throw new HttpError(
@@ -576,17 +579,39 @@ export async function updateLead(db: Db, actor: SessionUser, id: string, body: u
       if (v === undefined) continue;
       patch[k] = typeof v === 'boolean' ? boolCell(v) : String(v);
     }
+    // Team members: business details only on leads they added, never as a Google lead.
+    const detailKeys = Object.keys(patch).filter((k) => TEAM_FIELD_KEYS.includes(k));
+    if (!founder && detailKeys.length) {
+      if (lead.addedBy !== actor.id) throw new HttpError(403, 'You can only edit the details of leads you added yourself.');
+      if (patch.source === 'Google Places') throw new HttpError(400, 'Choose where you found this lead.');
+      if ('businessName' in patch && !patch.businessName.trim()) throw new HttpError(400, 'Business name is required.');
+    }
     // Contact fields on an unconfirmed Google lead are set only through
     // "Confirm contact" — never typed over a listing the user is looking at.
     if (lead.placeId && !lead.confirmedAt && (patch.businessName || patch.phone || patch.contactPerson)) {
       throw new HttpError(400, 'Use "Confirm contact" after reaching the business to save its name and number.');
     }
     if ('phone' in patch) {
-      patch.phone = cleanPhone(patch.phone, state.rows, id);
+      try {
+        patch.phone = cleanPhone(patch.phone, state.rows, id);
+      } catch (e) {
+        if (!founder && e instanceof HttpError && e.code === 'DUPLICATE') throw new HttpError(409, 'This number is already in Azumco\'s leads. Ask a founder before adding it again.', 'DUPLICATE');
+        throw e;
+      }
       if (patch.phone !== lead.phone) patch.phoneSource = patch.phone ? 'manual' : '';
     }
     if (patch.callHappened === 'TRUE' && ['New', 'Contacted'].includes(patch.status ?? lead.status)) patch.status = 'Qualified';
-    const { after } = await db.updateUnqueued('Leads', id, patch, actor.id, expectedUpdatedAt);
+    const { before, after } = await db.updateUnqueued('Leads', id, patch, actor.id, expectedUpdatedAt);
+    if (!founder && detailKeys.length) {
+      await auditUnqueued(db, [{
+        actorId: actor.id,
+        action: 'lead.update',
+        entity: 'Leads',
+        entityId: id,
+        before: Object.fromEntries(detailKeys.map((k) => [k, before[k] ?? ''])),
+        after: Object.fromEntries(detailKeys.map((k) => [k, after[k] ?? ''])),
+      }]);
+    }
     return after;
   });
 }
