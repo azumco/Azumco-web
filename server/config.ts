@@ -31,6 +31,19 @@ const envSchema = z
      */
     SHEETS_BACKEND: z.enum(['google', 'memory']).default('google'),
 
+    /**
+     * Where the data lives: 'sheets' (default; Google Sheets, or memory per
+     * SHEETS_BACKEND) or 'postgres' (Supabase via DATABASE_URL). Switching back
+     * to 'sheets' is the rollback.
+     */
+    DATA_BACKEND: z.enum(['sheets', 'postgres']).default('sheets'),
+    /** Supabase SESSION pooler connection string. Never logged. */
+    DATABASE_URL: z.string().trim().optional(),
+    /** Postgres schema for all tables (e.g. "staging"). Default public. */
+    DB_SCHEMA: z.string().trim().regex(/^[a-z_][a-z0-9_]{0,62}$/, 'lowercase letters, digits and underscores only').default('public'),
+    /** Optional: the Supabase CA certificate (PEM, or base64 of it). When set, the server certificate is verified. */
+    DATABASE_CA_CERT: z.string().trim().optional(),
+
     SESSION_SECRET: z.string().min(32, 'SESSION_SECRET must be at least 32 characters'),
     /** Only addresses on exactly this domain may have accounts or sign in. */
     ALLOWED_EMAIL_DOMAIN: z
@@ -72,9 +85,14 @@ const envSchema = z
     if (!emailInDomain(env.SUPERADMIN_EMAIL, env.ALLOWED_EMAIL_DOMAIN)) {
       ctx.addIssue({ code: 'custom', path: ['SUPERADMIN_EMAIL'], message: `must be an address on ${env.ALLOWED_EMAIL_DOMAIN}` });
     }
+    const pg = env.DATA_BACKEND === 'postgres';
+    if (pg && !env.DATABASE_URL) ctx.addIssue({ code: 'custom', path: ['DATABASE_URL'], message: 'required when DATA_BACKEND=postgres' });
     if (env.STAGING_MODE === 'true') {
       if (env.RENDER) ctx.addIssue({ code: 'custom', path: ['STAGING_MODE'], message: 'staging mode cannot be used on Render' });
-      if (!env.STAGING_SPREADSHEET_ID) ctx.addIssue({ code: 'custom', path: ['STAGING_SPREADSHEET_ID'], message: 'required in staging mode' });
+      if (pg) {
+        // Postgres staging lives in its own schema of the same project.
+        if (env.DB_SCHEMA === 'public') ctx.addIssue({ code: 'custom', path: ['DB_SCHEMA'], message: 'staging mode with Postgres needs a separate schema (e.g. DB_SCHEMA=staging)' });
+      } else if (!env.STAGING_SPREADSHEET_ID) ctx.addIssue({ code: 'custom', path: ['STAGING_SPREADSHEET_ID'], message: 'required in staging mode' });
       else if (env.STAGING_SPREADSHEET_ID === env.GOOGLE_SHEETS_SPREADSHEET_ID)
         ctx.addIssue({ code: 'custom', path: ['STAGING_SPREADSHEET_ID'], message: 'must differ from GOOGLE_SHEETS_SPREADSHEET_ID' });
     } else if (env.STAGING_ASSIGNMENT_MINUTES !== undefined) {
@@ -83,7 +101,7 @@ const envSchema = z
     if (env.SHEETS_BACKEND === 'memory' && env.NODE_ENV === 'production') {
       ctx.addIssue({ code: 'custom', path: ['SHEETS_BACKEND'], message: 'memory backend is not allowed in production' });
     }
-    if (env.SHEETS_BACKEND === 'google') {
+    if (!pg && env.SHEETS_BACKEND === 'google') {
       if (!env.GOOGLE_SHEETS_SPREADSHEET_ID)
         ctx.addIssue({ code: 'custom', path: ['GOOGLE_SHEETS_SPREADSHEET_ID'], message: 'required' });
       if (!env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64)

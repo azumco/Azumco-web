@@ -20,6 +20,7 @@ import { assertLeadAccess, isFounder } from '../leads/access.ts';
 import { leadLabel, readLeads } from '../leads/service.ts';
 import { normalizePhone } from '../../shared/phone.ts';
 import { formatDate } from '../../shared/time.ts';
+import { isConstraintViolation } from '../db/pg.ts';
 import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, MEETING_MODES, normalizeMeetLink } from '../../shared/meet.ts';
 import { expandRules, planSlots, type AvailRule } from '../../shared/slots.ts';
 
@@ -208,6 +209,7 @@ export class BookingService {
         throw new HttpError(400, `${name} hasn't added a Meet link yet. Paste a Meet link for this booking.`, 'MEET_LINK_MISSING');
       }
 
+      // Postgres also enforces this with an exclusion constraint (no overlapping active bookings per founder).
       const mine = await this.db.insertUnqueued('Bookings', {
         leadId: input.leadId,
         founderId: slot.founderId,
@@ -222,7 +224,10 @@ export class BookingService {
         notes: input.notes,
         bookedBy: actor.id,
         callHappened: '',
-      }, actor.id);
+      }, actor.id).catch((e) => {
+        if (isConstraintViolation(e)) throw new HttpError(409, 'That slot was just taken. Pick another time.', 'SLOT_TAKEN');
+        throw e;
+      });
 
       // Read back: the earliest overlapping active booking in sheet order wins.
       const [after] = await this.db.loadFresh(['Bookings']);
@@ -293,7 +298,10 @@ export class BookingService {
       const slot = expandSlots(availability.rows, others, input.date, 1, now, b.founderId).find((s) => !s.booked && s.start === input.start);
       if (!slot) throw new HttpError(409, 'That slot is not available.', 'SLOT_TAKEN');
 
-      const { before } = await this.db.updateUnqueued('Bookings', id, { date: slot.date, start: slot.start, end: slot.end, status: 'booked' }, actor.id);
+      const { before } = await this.db.updateUnqueued('Bookings', id, { date: slot.date, start: slot.start, end: slot.end, status: 'booked' }, actor.id).catch((e) => {
+        if (isConstraintViolation(e)) throw new HttpError(409, 'That slot was just taken.', 'SLOT_TAKEN');
+        throw e;
+      });
       const [after] = await this.db.loadFresh(['Bookings']);
       const winner = after.rows.find((x) => isActive(x) && x.founderId === b.founderId && overlaps(x, slot));
       if (winner && winner.id !== id) {

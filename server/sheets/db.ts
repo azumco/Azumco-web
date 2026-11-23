@@ -33,7 +33,7 @@ export class NotFoundError extends Error {
   }
 }
 
-interface TabState {
+export interface TabState {
   header: string[];
   rows: Row[];
   /** id → 1-based sheet row number at the time of the read. */

@@ -130,9 +130,13 @@ export async function notifyExpiringSoon(db: Db): Promise<number> {
  * The maintenance job: return lapsed assignments and send "expiring soon"
  * notices. Used by the in-process scheduler and by /api/maintenance/run.
  */
-export async function runMaintenance(db: Db): Promise<{ expired: number; expiring: number }> {
+export async function runMaintenance(db: Db): Promise<{ expired: number; expiring: number; sessionsPruned?: number }> {
   const expired = await sweepExpired(db);
   const expiring = await notifyExpiringSoon(db);
+  // Postgres: drop expired sessions. (This also guarantees every run makes
+  // real database queries, so a Supabase Free project never counts as idle.)
+  const pruner = db as Db & { pruneExpiredSessions?: () => Promise<number> };
+  if (typeof pruner.pruneExpiredSessions === 'function') return { expired, expiring, sessionsPruned: await pruner.pruneExpiredSessions() };
   return { expired, expiring };
 }
 
