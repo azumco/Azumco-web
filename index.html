@@ -10,6 +10,28 @@
     <meta name="geo.placename" content="Ujjain, Madhya Pradesh" />
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      Loader: the hero's dotted logo, rotating. Critical CSS here; the markup
+      and the small controller are at the top of <body>.
+    -->
+    <style>
+      #az-loader {
+        position: fixed; inset: 0; z-index: 2147483000; display: none;
+        align-items: center; justify-content: center;
+        background: #0a0a0a; /* --bg */
+      }
+      #az-loader.az-on { display: flex; animation: az-in 0.25s ease-out both; }
+      #az-loader.az-out { opacity: 0; transition: opacity 0.3s ease; }
+      /* Scroll lock that keeps the scrollbar space, so the page width does not change on unlock. */
+      html.az-lock { overflow: hidden; scrollbar-gutter: stable; }
+      html.az-lock body { overflow: hidden; }
+      .azl-src { display: none; }
+      .azl-dots { width: clamp(150px, 26vmin, 230px); height: clamp(150px, 26vmin, 230px); }
+      /* The message sits under the logo without moving it off centre. */
+      .azl-msg { position: absolute; left: 0; right: 0; top: calc(50% + clamp(150px, 26vmin, 230px) * 0.5 + 12px); margin: 0 auto; min-height: 1.5em; max-width: 34ch; padding: 0 24px; text-align: center; font: 400 13px/1.5 Satoshi, system-ui, sans-serif; color: #a19e98; /* --fg-2 */ }
+      @keyframes az-in { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+    <noscript><style>#az-loader { display: none !important; }</style></noscript>
     <link rel="canonical" href="https://azumco.com/" />
 
     <meta property="og:type" content="website" />
@@ -181,6 +203,141 @@
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <!--
+      Loader: the hero's dotted Azumco logo, rotating horizontally. Shown only
+      if the page is not ready within ~400 ms; removed from the DOM after its
+      fade-out. The dots are sampled from the logo SVG below (the brand file
+      src/assets/brand/azumco-logo.svg), so there is no image request.
+    -->
+    <div id="az-loader" role="status" aria-label="Loading">
+      <svg class="azl-src" viewBox="0 0 1114 1262" width="1114" height="1262" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="azl-g0" x1="296" y1="73" x2="946" y2="1113" gradientUnits="userSpaceOnUse"><stop stop-color="#FD7400"/><stop offset="1" stop-color="#FB6200"/></linearGradient>
+          <linearGradient id="azl-g1" x1="276" y1="573" x2="416" y2="633" gradientUnits="userSpaceOnUse"><stop stop-color="#F04000" stop-opacity="0.27"/><stop offset="1" stop-color="#F04000" stop-opacity="0.46"/></linearGradient>
+          <linearGradient id="azl-g2" x1="329" y1="793" x2="553" y2="1241" gradientUnits="userSpaceOnUse"><stop stop-color="#525253"/><stop offset="0.55" stop-color="#3F3F40"/><stop offset="1" stop-color="#2D2D2E"/></linearGradient>
+          <linearGradient id="azl-g3" x1="646" y1="783" x2="706" y2="1113" gradientUnits="userSpaceOnUse"><stop stop-color="#3D3D3F"/><stop offset="1" stop-color="#292929"/></linearGradient>
+        </defs>
+          <path d="M561 21L1093 890L791 1143L895 858L796 687L430 684L514 557L713 556L558 297L221 853L321 1143L21 886L561 21Z" fill="url(#azl-g0)"/>
+          <path d="M557 281L21 886L321 1143L221 853L558 297L557 281Z" fill="url(#azl-g1)"/>
+          <path d="M557 281L764 559L1093 890L791 1143L895 858L796 687L713 556L558 297L557 281Z" fill="#F04000" fill-opacity="0.38"/>
+        
+          <path d="M221 853C214 918 246 998 321 1143L221 853Z" fill="#F64600"/>
+          <path d="M895 858C908 908 871 998 791 1143L895 858Z" fill="#F44800"/>
+          <path d="M430 684L788 662L796 687L430 684Z" fill="#F34100"/>
+          <path d="M558 285L528 321L517 353L520 359L556 297L558 285Z" fill="#F44600"/>
+        
+          <path d="M329 723L328 1029L553 1241V862L329 723Z" fill="url(#azl-g2)"/>
+          <path d="M329 723L553 862V906L329 770V723Z" fill="#1E1E1F"/>
+          <path d="M329 770L553 906" stroke-width="2.5" stroke="#5B5B5D"/>
+          <path d="M328 1029L553 1241V1231L328 1019V1029Z" fill="#101011"/>
+          <path d="M788 722L563 862V1241L789 1028L788 722Z" fill="url(#azl-g3)"/>
+          <path d="M789 885V1028L563 1241V1106L789 885Z" fill="#191919"/>
+          <path d="M788 722L563 862L572 904L789 770L788 722Z" fill="#1E1E1F"/>
+          <path d="M789 770L572 904" stroke-width="2.5" stroke="#4C4C4E"/>
+          <path d="M563 862L577 870V1227L563 1241V862Z" fill="#141415"/>
+      </svg>
+      <canvas class="azl-dots" aria-hidden="true"></canvas>
+      <p class="azl-msg" aria-live="polite"></p>
+    </div>
+    <script>
+      // Loader controller (no network, no dependencies). The app calls
+      // window.__azLoader.ready() when it has rendered; the team portal can
+      // also set a message (e.g. "server is waking up").
+      (function () {
+        var ONCE_PER_SESSION = true; // public site: show at most once per browser session
+        var DELAY = 400;     // ms before showing (fast loads never see it)
+        var MIN_SHOW = 1500; // ms on screen once shown (dots assemble, then a turn)
+        var EXIT = 300;      // ms fade-out
+        var ASSEMBLE = 900;  // ms for the dots to gather into the logo
+        var TURN = 3200;     // ms per full horizontal turn
+        var MAX_DOTS = 3500; // about the hero's density
+        var KEY = 'az-loader-seen';
+        var el = document.getElementById('az-loader');
+        var root = document.documentElement;
+        var team = /^\/team(\/|$)/.test(location.pathname);
+        var dev = '%DEV%' === 'true';
+        var replay = dev && /[?&]loader(=|&|$)/.test(location.search);
+        var hold = dev && /[?&]hold(=|&|$)/.test(location.search); // dev preview: stay on screen
+        var reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var ready = false, shown = false, finished = false, leaving = false, timer;
+        var stopDots = function () {};
+        var seen = false;
+        if (!team && ONCE_PER_SESSION && !replay) { try { seen = sessionStorage.getItem(KEY) === '1'; } catch (e) {} }
+
+        function remove() { stopDots(); if (el && el.parentNode) el.parentNode.removeChild(el); el = null; root.classList.remove('az-lock'); }
+        function exit() { if (!el || leaving) return; leaving = true; el.classList.add('az-out'); setTimeout(remove, EXIT); }
+
+        // The hero's dotted logo: orange vs grey points sampled from the logo
+        // SVG, gathering from a sphere, then turning horizontally.
+        function startDots() {
+          var canvas = el.querySelector('.azl-dots');
+          var ctx = canvas && canvas.getContext('2d');
+          if (!ctx) return;
+          var img = new Image(), raf = 0, alive = true;
+          stopDots = function () { alive = false; cancelAnimationFrame(raf); };
+          img.onload = function () {
+            if (!alive) return;
+            var W = 150, H = Math.round(W * 1262 / 1114);
+            var off = document.createElement('canvas'); off.width = W; off.height = H;
+            var o = off.getContext('2d'); o.drawImage(img, 0, 0, W, H);
+            var data = o.getImageData(0, 0, W, H).data, pts = [];
+            for (var y = 0; y < H; y++) for (var x = 0; x < W; x++) {
+              var k = (y * W + x) * 4, r = data[k], g = data[k + 1], b = data[k + 2], a = data[k + 3];
+              if (a < 140) continue;
+              var mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+              var orange = r > 170 && g > 40 && b < 90;
+              if (!orange && (mx === 0 || (mx - mn) / mx > 0.2)) continue;
+              var u = Math.random() * 6.2832, v = Math.acos(2 * Math.random() - 1), R = 1.6, sc = 2 / H;
+              pts.push({ x: (x - W / 2) * sc, y: (y - H / 2) * sc, z: (Math.random() - 0.5) * (orange ? 0.22 : 0.34),
+                sx: R * Math.sin(v) * Math.cos(u), sy: R * Math.sin(v) * Math.sin(u), sz: R * Math.cos(v), o: orange });
+            }
+            if (pts.length > MAX_DOTS) { var keep = MAX_DOTS / pts.length; pts = pts.filter(function () { return Math.random() < keep; }); }
+            var dpr = Math.min(window.devicePixelRatio || 1, 2), size = canvas.getBoundingClientRect().width || 200;
+            canvas.width = size * dpr; canvas.height = size * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            var t0 = performance.now();
+            (function frame(now) {
+              if (!alive) return;
+              var t = now - t0, q = reduced ? 1 : Math.min(1, t / ASSEMBLE), e = 1 - Math.pow(1 - q, 4);
+              var ry = reduced ? -0.35 : (t / TURN) * 6.2832 + (1 - e) * 2.5, cy = Math.cos(ry), sy = Math.sin(ry);
+              var cx = Math.cos(0.08), sx = Math.sin(0.08), scale = size * 0.42, cam = 3;
+              ctx.clearRect(0, 0, size, size);
+              for (var n = 0; n < pts.length; n++) {
+                var p = pts[n], X = p.sx + (p.x - p.sx) * e, Y = p.sy + (p.y - p.sy) * e, Z = p.sz + (p.z - p.sz) * e;
+                var x1 = X * cy - Z * sy, z1 = X * sy + Z * cy, y1 = Y * cx - z1 * sx, z2 = Y * sx + z1 * cx;
+                var f = cam / (cam + z2), d = Math.max(0, Math.min(1, (1.2 - z2) / 2)), s2 = (p.o ? 1.7 : 1.5) * f;
+                ctx.globalAlpha = (0.25 + d * 0.75) * (0.4 + 0.6 * e);
+                ctx.fillStyle = p.o ? '#ff6a00' : '#9a968f';
+                ctx.fillRect(size / 2 + x1 * scale * f - s2 / 2, size / 2 + y1 * scale * f - s2 / 2, s2, s2);
+              }
+              ctx.globalAlpha = 1;
+              if (!reduced) raf = requestAnimationFrame(frame);
+            })(t0);
+          };
+          img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(el.querySelector('.azl-src')));
+        }
+
+        function show() {
+          if (!el || shown || ready) return;
+          shown = true;
+          el.classList.add('az-on');
+          root.classList.add('az-lock');
+          startDots();
+          if (!team) { try { sessionStorage.setItem(KEY, '1'); } catch (e) {} }
+          setTimeout(function () { finished = true; if (ready) exit(); }, reduced ? 150 : MIN_SHOW);
+        }
+        window.__azLoader = {
+          ready: function () {
+            if (ready || hold) return;
+            ready = true;
+            if (!shown) { clearTimeout(timer); remove(); } else if (finished) exit();
+          },
+          message: function (text) { var m = el && el.querySelector('.azl-msg'); if (m) m.textContent = text || ''; },
+          replay: dev ? function () { try { sessionStorage.removeItem(KEY); } catch (e) {} location.search = '?loader'; } : undefined
+        };
+        if (!el) return;
+        if (seen) remove(); else timer = setTimeout(show, replay ? 0 : DELAY);
+      })();
+    </script>
     <noscript>Azumco — websites, apps and digital marketing. Contact: contact.azumco@gmail.com</noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
