@@ -3,11 +3,11 @@
 // follow the picker). The day strip always shows one week (7 days) with
 // prev/next arrows. Founder names and colours come from the user records.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CalendarX, Check, ChevronLeft, ChevronRight, Store } from 'lucide-react';
 import { addDays, weekday } from '../../../shared/slots';
 import { formatDate, istDate } from '../../../shared/time';
-import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, MEET_LINK_HELP, normalizeMeetLink, type MeetingMode } from '../../../shared/meet';
+import { DEFAULT_MEETING_MODE, MEET_BOOKING_HELP, MEET_LINK_ERROR, normalizeMeetLink, type MeetingMode } from '../../../shared/meet';
 import { api } from '../api';
 import { useAction, useApi } from '../hooks';
 import { Async, Avatar, Button, ChipGroup, ChoiceChip, Empty, ErrorText, Field, Modal, SPLIT_SUMMARY, StepLabel, colourTone, cx } from '../ui';
@@ -87,14 +87,19 @@ export default function Book({ user }: { user: TeamUser }) {
     return (free.find((s) => founderOf(s.founderId)?.meetLink) ?? free[0] ?? time).founderId;
   })();
   const founderLink = normalizeMeetLink(founderOf(meetFounderId)?.meetLink) || '';
-  const override = normalizeMeetLink(form.meetOverride);
-  const needsOverride = meet && Boolean(meetFounderId) && !founderLink;
-  const meetBlocked = needsOverride && !override;
+  // Every Google Meet booking has its own "Meeting link": prefilled with the
+  // founder's saved link and editable, so the booker can paste a new one.
+  const [meetEdited, setMeetEdited] = useState(false);
+  useEffect(() => {
+    if (!meetEdited) setForm((f) => (f.meetOverride === founderLink ? f : { ...f, meetOverride: founderLink }));
+  }, [founderLink, meetEdited]);
+  const meetLink = normalizeMeetLink(form.meetOverride);
+  const meetBlocked = meet && !meetLink;
 
   const book = async () => {
     if (!lead || !time) return setError('Choose a lead and a time.');
-    if (meetBlocked) return setError(`${nameOf(meetFounderId)} hasn't added a Meet link yet. Paste one for this booking.`);
-    const link = meet ? (needsOverride ? override || '' : '') : form.mode === 'Zoho Cliq' ? form.link : '';
+    if (meetBlocked) return setError(meetLink === null ? MEET_LINK_ERROR : 'Paste a Google Meet link for this call.');
+    const link = meet ? meetLink || '' : form.mode === 'Zoho Cliq' ? form.link : '';
     const { meetOverride: _unused, ...rest } = form;
     void _unused;
     const r = await run(() => api<{ booking: Booked }>('POST', '/bookings', { leadId, founderId: founder === 'any' ? 'any' : time.founderId, date: time.date, start: time.start, ...rest, link }));
@@ -104,37 +109,37 @@ export default function Book({ user }: { user: TeamUser }) {
       setDone(`Booked with ${nameOf(r.booking.founderId)} on ${formatDate(r.booking.date)} at ${fmt(r.booking.start)}. ${nameOf(r.booking.founderId)} has been notified.`);
       setBooked(r.booking);
       setTime(null);
-      setForm((f) => ({ ...f, meetOverride: '' }));
+      setMeetEdited(false);
     }
   };
 
   const howChips = (step?: number) => (
     <ChipGroup step={step} label="How" options={MODES} value={form.mode} onChange={(v) => v && setForm({ ...form, mode: v })} required />
   );
-  // No founder resolved yet ("Any founder", no time picked): explain, and if
-  // no founder has a link at all, let the booker paste one straight away.
-  const anyFounderHasLink = founders.some((f) => normalizeMeetLink(f.meetLink));
-  const overrideField = (
-    <>
-      <Field label="Meet link for this booking" type="url" inputMode="url" autoComplete="off" placeholder="https://meet.google.com/abc-defg-hij" value={form.meetOverride} onChange={(e) => setForm({ ...form, meetOverride: e.target.value })} />
-      {form.meetOverride.trim() !== '' && override === null ? <p className="text-xs text-warn">{MEET_LINK_ERROR}</p> : <p className="text-xs text-fg-3">{MEET_LINK_HELP}</p>}
-    </>
-  );
-  const meetNote = !meet ? null : !meetFounderId ? (
-    anyFounderHasLink ? (
-      <p className="text-xs text-fg-3">Uses the Google Meet link of the founder you book with. Pick a time to see whose.</p>
-    ) : (
-      <div className="space-y-3 rounded-2xl border border-warn/40 bg-warn/10 p-4">
-        <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> No founder has added a Meet link yet</p>
-        {overrideField}
-      </div>
-    )
-  ) : founderLink ? (
-    <p className="flex items-center gap-2 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> Uses {nameOf(meetFounderId)}'s Google Meet link.</p>
-  ) : (
-    <div className="space-y-3 rounded-2xl border border-warn/40 bg-warn/10 p-4">
-      <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> {nameOf(meetFounderId)} hasn't added a Meet link yet</p>
-      {overrideField}
+  const usingSaved = Boolean(founderLink) && meetLink === founderLink;
+  const meetNote = !meet ? null : (
+    <div className="space-y-2">
+      <Field
+        label="Meeting link"
+        type="url"
+        inputMode="url"
+        autoComplete="off"
+        placeholder="https://meet.google.com/abc-defg-hij"
+        value={form.meetOverride}
+        onChange={(e) => { setMeetEdited(true); setForm({ ...form, meetOverride: e.target.value }); }}
+      />
+      {form.meetOverride.trim() !== '' && meetLink === null ? (
+        <p className="text-xs text-warn">{MEET_LINK_ERROR}</p>
+      ) : (
+        <p className="text-xs text-fg-3">{MEET_BOOKING_HELP}</p>
+      )}
+      {meetFounderId && (
+        usingSaved ? (
+          <p className="flex items-center gap-2 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> {nameOf(meetFounderId)}'s saved link. Paste a different one to use a new link for this call.</p>
+        ) : !founderLink ? (
+          <p className="flex items-start gap-2 text-xs text-warn"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {nameOf(meetFounderId)} hasn't saved a Meet link. Paste one for this call.</p>
+        ) : null
+      )}
     </div>
   );
 

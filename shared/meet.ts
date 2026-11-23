@@ -10,7 +10,10 @@ export const DEFAULT_MEETING_MODE: MeetingMode = 'Google Meet';
 
 /** https://meet.google.com/abc-defg-hij */
 export const MEET_LINK_RE = /^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}$/;
-export const MEET_LINK_HELP = 'Create one at meet.google.com → New meeting → Create a meeting for later, then paste it here.';
+/** Under a founder's saved link (profile). */
+export const MEET_LINK_HELP = 'Create one at meet.google.com → New meeting → Create a meeting for later. You can reuse this link. It stays valid as long as it’s used at least once a year.';
+/** Under the per-booking link field. */
+export const MEET_BOOKING_HELP = 'Whoever created this link must join the call to let others in.';
 export const MEET_LINK_ERROR = 'Use a Google Meet link like https://meet.google.com/abc-defg-hij';
 
 /**

@@ -121,7 +121,7 @@ describe('Booking with Google Meet', () => {
     expect(notes.find((n) => n.type === 'booking_created')!.message).toContain(LINK_A);
   });
 
-  it('missing link: blocked unless a valid per-booking link is given; the founder’s saved link wins when present', async () => {
+  it('missing link: blocked unless a valid per-booking link is given; a link typed on the booking overrides the saved one', async () => {
     const { admin, staff, lead, adminId } = await bookable();
     const missing = await staff.req('POST', '/api/bookings', body(lead, adminId, '10:00', { mode: 'Google Meet' }));
     expect(missing.status).toBe(400);
@@ -131,10 +131,20 @@ describe('Booking with Google Meet', () => {
     const ok = await staff.req('POST', '/api/bookings', body(lead, adminId, '10:00', { mode: 'Google Meet', link: LINK_B }));
     expect(ok.status).toBe(201);
     expect(ok.body.booking.link).toBe(LINK_B);
-    // Once the founder saves a link, it is used even if a per-booking one is sent.
+    // With a saved link, an empty field uses it, and a pasted link overrides it for that booking only.
     await admin.req('PATCH', '/api/me/meet-link', { meetLink: LINK_A });
-    const next = await staff.req('POST', '/api/bookings', body(lead, adminId, '10:30', { mode: 'Google Meet', link: LINK_B }));
-    expect(next.body.booking.link).toBe(LINK_A);
+    const saved = await staff.req('POST', '/api/bookings', body(lead, adminId, '10:30', { mode: 'Google Meet' }));
+    expect(saved.body.booking.link).toBe(LINK_A);
+    await admin.req('POST', '/api/availability', { date: '2026-11-24', start: '10:00', end: '11:00', slotMinutes: 30 });
+    const own = await staff.req('POST', '/api/bookings', { ...body(lead, adminId, '10:00', { mode: 'Google Meet', link: LINK_B }), date: '2026-11-24' });
+    expect(own.body.booking.link).toBe(LINK_B);
+    // Founders can change the link on an existing booking; team members cannot.
+    expect((await staff.req('PATCH', `/api/bookings/${own.body.booking.id}/link`, { link: LINK_A })).status).toBe(403);
+    expect((await admin.req('PATCH', `/api/bookings/${own.body.booking.id}/link`, { link: 'nope' })).body.code).toBe('MEET_LINK_INVALID');
+    const changed = await admin.req('PATCH', `/api/bookings/${own.body.booking.id}/link`, { link: LINK_A.toUpperCase() });
+    expect(changed.body.booking.link).toBe(LINK_A);
+    const listed = ((await admin.req('GET', '/api/bookings')).body.bookings as { id: string; link: string }[]).find((x) => x.id === own.body.booking.id)!;
+    expect(listed.link).toBe(LINK_A);
   });
 
   it('"Any founder" uses the link of the founder the slot belongs to', async () => {

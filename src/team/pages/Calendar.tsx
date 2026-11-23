@@ -1,6 +1,7 @@
 // Founders: this week's free slots (each founder in their own colour, booked
 // calls solid), upcoming calls, my free slots, and "Add my free slots".
 
+import { MEET_BOOKING_HELP, MEET_LINK_ERROR, normalizeMeetLink } from '../../../shared/meet';
 import MeetActions from '../components/MeetActions';
 import MeetLinkField from '../components/MeetLinkField';
 import { useMemo, useState } from 'react';
@@ -121,6 +122,19 @@ function AddSlots({ open, onClose, onSaved, weekStart, myRules, me }: { open: bo
 
 function BookingDialog({ b, onClose, onChange }: { b: Booking; onClose: () => void; onChange: () => void }) {
   const [to, setTo] = useState({ date: b.date, start: b.start });
+  // Founders can change the Meet link on this booking.
+  const [link, setLink] = useState(b.link);
+  const [linkText, setLinkText] = useState(b.link);
+  const linkAction = useAction();
+  const cleanLink = normalizeMeetLink(linkText);
+  const saveLink = async () => {
+    const r = await linkAction.run(() => api<{ booking: { link: string } }>('PATCH', `/bookings/${b.id}/link`, { link: linkText }));
+    if (r) {
+      setLink(r.booking.link);
+      setLinkText(r.booking.link);
+      onChange();
+    }
+  };
   const { busy, error, run } = useAction();
   const act = async (fn: () => Promise<unknown>) => {
     if ((await run(fn)) !== undefined) {
@@ -133,8 +147,18 @@ function BookingDialog({ b, onClose, onChange }: { b: Booking; onClose: () => vo
     <Modal title={b.clientName} subtitle={`${formatDate(b.date)} · ${fmt(b.start)} IST · with ${b.founderName} · ${b.mode}`} open onClose={onClose}>
       <div className="space-y-5">
         {b.phone && <p className="text-sm text-fg-2">Phone {b.phone}</p>}
-        {b.mode === 'Google Meet' && b.link ? (
-          <MeetActions join phone={b.phone} booking={{ date: b.date, start: b.start, end: b.end, clientName: b.clientName, founderName: b.founderName, link: b.link }} />
+        {b.mode === 'Google Meet' ? (
+          <div className="space-y-4">
+            {link && <MeetActions join phone={b.phone} booking={{ date: b.date, start: b.start, end: b.end, clientName: b.clientName, founderName: b.founderName, link }} />}
+            <div>
+              <div className="flex items-end gap-2">
+                <Field label="Meeting link" type="url" inputMode="url" autoComplete="off" placeholder="https://meet.google.com/abc-defg-hij" value={linkText} onChange={(e) => setLinkText(e.target.value)} className="min-w-0 flex-1" />
+                <Button size="sm" variant="secondary" busy={linkAction.busy} disabled={!cleanLink || cleanLink === link} onClick={saveLink}>Save</Button>
+              </div>
+              {linkText.trim() !== '' && cleanLink === null ? <p className="mt-1.5 text-xs text-warn">{MEET_LINK_ERROR}</p> : <p className="mt-1.5 text-xs text-fg-3">{MEET_BOOKING_HELP}</p>}
+              <div className="mt-2"><ErrorText>{linkAction.error}</ErrorText></div>
+            </div>
+          </div>
         ) : (
           b.link && <a href={b.link} target="_blank" rel="noreferrer noopener" className="text-sm text-brand">Meeting link</a>
         )}

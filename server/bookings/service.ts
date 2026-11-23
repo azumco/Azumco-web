@@ -47,7 +47,7 @@ export const bookingSchema = z.object({
   clientName: z.string().trim().min(1, 'Enter the client name.').max(150),
   phone: z.string().trim().max(40).default(''),
   mode: z.enum(MEETING_MODES).default(DEFAULT_MEETING_MODE),
-  /** Zoho Cliq: the room link. Google Meet: a per-booking link, used only when the founder has none saved. */
+  /** Zoho Cliq: the room link. Google Meet: this booking's link (prefilled with the founder's saved one; the booker may paste their own). */
   link: z.string().trim().max(500).default(''),
   notes: z.string().trim().max(1000).default(''),
 });
@@ -201,8 +201,8 @@ export class BookingService {
       const meetOf = (id: string) => normalizeMeetLink(users.find((u) => u.id === id)?.meetLink) || '';
       // "Any founder" with Google Meet: prefer a founder who has a Meet link saved.
       const slot = meet ? (open.find((s) => meetOf(s.founderId)) ?? open[0]) : open[0];
-      // The founder's saved link wins; the per-booking link covers a founder without one.
-      const link = meet ? meetOf(slot.founderId) || override || '' : input.link;
+      // The link typed on the booking wins; otherwise the founder's saved link.
+      const link = meet ? override || meetOf(slot.founderId) || '' : input.link;
       if (meet && !link) {
         const name = (users.find((u) => u.id === slot.founderId)?.name ?? 'This founder').split(' ')[0];
         throw new HttpError(400, `${name} hasn't added a Meet link yet. Paste a Meet link for this booking.`, 'MEET_LINK_MISSING');
@@ -256,6 +256,19 @@ export class BookingService {
     const b = await this.db.find('Bookings', id);
     if (!b) throw new HttpError(404, 'Booking not found.');
     return b;
+  }
+
+  /** Founders change the meeting link on an existing Google Meet booking. */
+  async setLink(actor: SessionUser, id: string, raw: string) {
+    const b = await this.ownBooking(actor, id);
+    if (b.mode !== 'Google Meet') throw new HttpError(400, 'Only Google Meet bookings have a Meet link.');
+    const link = normalizeMeetLink(raw);
+    if (!link) throw new HttpError(400, MEET_LINK_ERROR, 'MEET_LINK_INVALID');
+    return this.db.exclusive(async () => {
+      const { after } = await this.db.updateUnqueued('Bookings', id, { link }, actor.id);
+      await auditUnqueued(this.db, [{ actorId: actor.id, action: 'booking.link', entity: 'Bookings', entityId: id, before: { link: b.link }, after: { link } }]);
+      return after;
+    });
   }
 
   async cancel(actor: SessionUser, id: string) {

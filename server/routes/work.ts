@@ -224,6 +224,11 @@ export function workRoutes(db: Db, places: PlacesService) {
   r.post('/bookings', async (req, res) => {
     res.status(201).json({ booking: await bookings.book(me(res), parse(bookingSchema, req.body)) });
   });
+  r.patch('/bookings/:id/link', FOUNDERS, async (req, res) => {
+    const { link } = parse(z.object({ link: z.string().max(200) }).strict(), req.body);
+    const b = await bookings.setLink(me(res), param(req, 'id'), link);
+    res.json({ booking: { id: b.id, link: b.link } });
+  });
   r.post('/bookings/:id/cancel', FOUNDERS, async (req, res) => {
     await bookings.cancel(me(res), param(req, 'id'));
     res.json({ ok: true });
