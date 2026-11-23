@@ -73,7 +73,8 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-16 flex flex-col gap-4 border-t border-line py-6 text-xs text-fg-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* relative z-10: the big AZUMCO wordmark below overflows upward; keep these links on top of it. */}
+        <div className="relative z-10 mt-16 flex flex-col gap-4 border-t border-line py-6 text-xs text-fg-3 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © {new Date().getFullYear()} {site.legalName} All rights reserved.
           </p>
