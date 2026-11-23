@@ -47,6 +47,12 @@ npm run build:all        # site + server bundle (dist/ and dist-server/)
 STAGING_MODE=true npm run staging -- inspect      # staging sheet: row counts (never touches production)
 STAGING_MODE=true npm run staging:walk -- ...     # staging end-to-end walk over HTTP (see docs/RELEASE.md)
 npm run prod:data -- snapshot <file>              # production: copy of every tab (secret columns redacted) + schema check
+npm run reset-password -- <email>                  # locked-out super admin: local-only reset (see Locked out?)
+npm run db:migrate                                 # Postgres: apply migrations to DB_SCHEMA (also runs at start)
+npm run db:import-from-sheets -- --dry-run         # Postgres: copy the Sheet in (idempotent; --staging --schema staging for staging)
+npm run db:backup                                  # Postgres: every table to backups/<schema>-<time>/ (git-ignored; contains hashes)
+npm run db:restore -- backups/<folder>             # Postgres: load a backup into an empty schema
+npm run test:pg                                    # the whole test suite on Postgres, in throwaway schemas (needs DATABASE_URL)
 npm start                # serve both, as on Render
 ```
 
@@ -73,7 +79,8 @@ On the first start the server creates every tab and header itself, then inserts 
 | `SUPERADMIN_INITIAL_PASSWORD` | first start only | 12+ characters; remove after first sign-in |
 | `TEAM_USERS` | yes | JSON: `[{"name":"…","email":"…","role":"admin"},{"name":"…","email":"…","role":"employee"}]`, all on the allowed domain |
 | `GOOGLE_PLACES_API_KEY` | no | enables Find clients |
-| `CRON_TOKEN` | recommended | 32+ random characters; enables the maintenance endpoint (404 without it) |
+| `CRON_TOKEN` | optional | 32+ random characters; enables the manual/backup maintenance endpoint (404 without it) |
+| `INTERNAL_SCHEDULER` | no | in-process maintenance sweep every 15 min; default on in production, off otherwise |
 | `PORT` | no | Render sets it; default 8080 |
 | `STAGING_MODE`, `STAGING_SPREADSHEET_ID`, `STAGING_ASSIGNMENT_MINUTES` | **never on Render** | local staging runs only; refused when `RENDER` is set or the staging id equals the production id |
 
@@ -98,6 +105,18 @@ Generate random secrets with: `node -e "console.log(require('crypto').randomByte
 2. Remove `SUPERADMIN_INITIAL_PASSWORD` from the environment. After first use it is ignored, and the server logs a reminder while it is still set.
 3. Go to Settings → Users. For each team member from `TEAM_USERS`, choose **Create password**. Share the one-time password privately. Each person picks their own at first sign-in.
 
+### Locked out?
+
+- **A teammate** forgot their password or is locked out: the super admin opens Settings → Team → **Create password** and shares the one-time password privately.
+- **The super admin** is locked out (no one can issue a password in the app): on your own machine, in the project folder with the production `.env`, run in PowerShell or Windows Terminal:
+
+  ```
+  npm run reset-password -- name@azumco.com
+  ```
+
+  It shows the spreadsheet title and ID and the account it will change, and does nothing unless you type `yes`. It then asks for a new temporary password twice at a hidden prompt (12+ characters, never a command-line argument, never printed or logged). It stores the password hashed, forces a change at next sign-in, clears failed attempts and the 15-minute account lockout, signs that person out everywhere, and writes the audit entry "password reset via local CLI". It only accepts active accounts on the company domain. There is no HTTP route for this.
+- After too many wrong attempts from one network, sign-in also pauses for up to 15 minutes per IP. That limit lives in the running server's memory: wait it out, or restart the service on Render.
+
 ### Render (one Web Service, free tier)
 
 | Setting | Value |
@@ -110,16 +129,24 @@ Generate random secrets with: `node -e "console.log(require('crypto').randomByte
 
 The server binds `0.0.0.0:$PORT`. A cold start takes 30–60 s. The public pages appear as soon as the instance is up, and the team area shows a "waking up" notice while it retries.
 
-### External scheduler (free, e.g. cron-job.org)
+### Scheduling
 
-| Job | Request | Every |
-|---|---|---|
-| Keep warm | `GET https://<your-app>.onrender.com/api/health` | 10 minutes |
-| Maintenance (assignment expiry sweep) | `POST https://<your-app>.onrender.com/api/maintenance/run` with header `Authorization: Bearer <CRON_TOKEN>` | 15 minutes |
+The maintenance sweep (returning lapsed lead assignments and sending "expiring soon" notices) runs **inside the server**: once ~10 s after start-up as a catch-up, then every 15 minutes (`INTERNAL_SCHEDULER`, on by default in production). It only runs while the service is awake. A sleeping free instance does nothing until something wakes it, and the catch-up run then processes anything overdue. Expiry is also enforced on every read, so nobody can work a lapsed lead either way; the sweep only makes the "lead expired" notifications arrive on time when nobody is using the app.
 
-Expiry is also checked on every read, so the sweep only makes the founders' "lead expired" notifications arrive promptly when nobody is using the app. If your scheduler cannot send headers, `?token=<CRON_TOKEN>` also works, but URLs can end up in logs, so prefer the header.
+The only external job needed is a free uptime monitor (e.g. UptimeRobot) that keeps the service awake:
+
+| Job | Request | Every | Needed? |
+|---|---|---|---|
+| Keep warm | `GET https://<your-app>.onrender.com/api/health` (UptimeRobot) | 10 minutes | **yes** |
+| Maintenance backup | `POST https://<your-app>.onrender.com/api/maintenance/run` with header `Authorization: Bearer <CRON_TOKEN>` (e.g. cron-job.org) | 15 minutes | optional |
+
+The token-protected endpoint stays as a manual or backup trigger; running it alongside the in-process scheduler is safe (each expiry is recorded, notified and audited exactly once). If a scheduler cannot send headers, `?token=<CRON_TOKEN>` also works, but URLs can end up in logs, so prefer the header.
 
 **Fallback if keep-warm pinging stops being viable:** move the public site to static hosting (Netlify or Cloudflare Pages, from `dist/`, using `public/_redirects`) so visitors never wait, and keep this service for `/team` and `/api` only.
+
+### Data store: Google Sheets or Postgres
+
+`DATA_BACKEND=sheets` (default) keeps everything in the Google Sheet. `DATA_BACKEND=postgres` uses Supabase Postgres via `DATABASE_URL` (session pooler) with real constraints (unique emails, no double-booking, one expiry per lead and deadline, an atomic Places cap), Row Level Security on every table, an append-only audit log and serialized write transactions. Same app, same UI. How to switch, roll back, back up and restore: docs/RELEASE.md §9.
 
 ### Data and Google's terms
 
@@ -153,6 +180,12 @@ Demo data exists only in `server/dev/demo.ts`. It runs only with `DEMO_DATA=true
 ### Goals
 
 Only the person a goal is **assigned to** can change its status, including marking it done. Everyone else gets 403, super admin included. Founders can still edit the title, dates, owner and support. Every status change is audited.
+
+### Google Meet for booked calls
+
+No Google API or sign-in is involved. Each founder pastes one reusable Meet link (Calendar page, or the super admin in Settings → Team). Create one at meet.google.com → New meeting → Create a meeting for later. Only links like `https://meet.google.com/abc-defg-hij` are accepted.
+
+Google Meet is the default meeting type when booking. The booking uses the link of the founder the slot belongs to; with "Any founder", a free founder who has a link is preferred. If that founder has no link, the booker can paste one for that booking; without either, the booking is refused. After booking: Copy link, Send to client on WhatsApp (prefilled message with the IST time), Add to Google Calendar, and for founders Join Google Meet. The founder's notification includes the link. Links are shown only to signed-in team users.
 
 ### Free slots
 

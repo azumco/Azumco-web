@@ -117,11 +117,11 @@ describe('AC2/AC3 — no self-registration; no off-domain account changes', () =
     const body = { name: 'New Person', email: 'new.person@azumco.com', role: 'employee' };
     expect((await anon.req('POST', '/api/users', body)).status).toBe(401);
     expect((await admin.req('POST', '/api/users', body)).status).toBe(403);
-    const before = JSON.stringify(await h.backend.readTabs(['Users']));
+    const before = JSON.stringify(await h.snapshot(['Users']));
     for (const email of ['new@gmail.com', 'new@azumco.com.evil.com', 'new@mail.azumco.com']) {
       expect((await owner.req('POST', '/api/users', { ...body, email })).status).toBe(400);
     }
-    expect(JSON.stringify(await h.backend.readTabs(['Users']))).toBe(before);
+    expect(JSON.stringify(await h.snapshot(['Users']))).toBe(before);
     expect((await owner.req('POST', '/api/users', body)).status).toBe(201);
     expect((await owner.req('POST', '/api/users', body)).status).toBe(409);
   });
@@ -130,24 +130,24 @@ describe('AC2/AC3 — no self-registration; no off-domain account changes', () =
     h = await startHarness();
     const owner = await superAdmin(h);
     const staff = (await owner.req('GET', '/api/users')).body.users.find((u: { email: string }) => u.email === EMPLOYEE_EMAIL);
-    const before = JSON.stringify(await h.backend.readTabs(['Users']));
+    const before = JSON.stringify(await h.snapshot(['Users']));
     for (const email of ['someone@gmail.com', 'someone@azumco.com']) {
       const r = await owner.req('PATCH', `/api/users/${staff.id}`, { email });
       expect(r.status).toBe(400);
       const r2 = await owner.req('PATCH', `/api/users/${staff.id}`, { email, role: 'admin' });
       expect(r2.status).toBe(400);
     }
-    expect(JSON.stringify(await h.backend.readTabs(['Users']))).toBe(before);
+    expect(JSON.stringify(await h.snapshot(['Users']))).toBe(before);
   });
 
   it('refuses role changes and passwords for an account outside the domain', async () => {
     h = await startHarness();
     const owner = await superAdmin(h);
     const row = await h.db.insert('Users', { email: 'x@gmail.com', name: 'X', role: 'employee', active: 'TRUE', passwordHash: '', sessionVersion: '0' }, 't');
-    const before = JSON.stringify(await h.backend.readTabs(['Users']));
+    const before = JSON.stringify(await h.snapshot(['Users']));
     expect((await owner.req('PATCH', `/api/users/${row.id}`, { role: 'admin' })).status).toBe(400);
     expect((await owner.req('POST', `/api/users/${row.id}/temp-password`)).status).toBe(400);
-    expect(JSON.stringify(await h.backend.readTabs(['Users']))).toBe(before);
+    expect(JSON.stringify(await h.snapshot(['Users']))).toBe(before);
   });
 
   it('lets the super admin type a temporary password or generate one', async () => {
@@ -205,7 +205,7 @@ describe('AC4 — the real team accounts', () => {
     await s.req('POST', '/api/auth/change-password', { currentPassword: temp, newPassword: 'suzanne-Own-Passw0rd' });
 
     const tabs = ['Users', 'Sessions', 'Settings', 'Audit', 'Meta', 'Leads', 'CallLog', 'Notifications', 'Expenses', 'Goals', 'Milestones', 'MilestoneItems', 'Contributions'] as const;
-    const everything = JSON.stringify(await h.backend.readTabs([...tabs])) + logged.join('\n');
+    const everything = JSON.stringify(await h.snapshot([...tabs])) + logged.join('\n');
     for (const pw of [SUPER.password, 'owner-Real-Passw0rd', temp, 'suzanne-Own-Passw0rd']) expect(everything).not.toContain(pw);
   });
 });

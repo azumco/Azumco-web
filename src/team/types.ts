@@ -54,6 +54,12 @@ export interface Lead {
   decisionMaker: string;
   need: string;
   nextStep: string;
+  /** Derived on the server: "Call booked · Tue 24 Nov, 4:30 PM", "Overdue · 21 Nov", "Follow up today", … */
+  nextAction: string;
+  booking: { id: string; date: string; start: string } | null;
+  lastCallOutcome: string;
+  /** Unassigned after an assignment ran out. */
+  expired: boolean;
   followUpDate: string;
   followUp: 'overdue' | 'today' | 'upcoming' | 'none';
   discoveryCallDate: string;
@@ -130,8 +136,8 @@ export interface TeamMember {
 
 export const firstName = (name: string) => (name || '').trim().split(/\s+/)[0] ?? '';
 
-/** "Good morning/afternoon/evening" by the current hour in India (IST). */
+/** "Good morning/afternoon/evening" by the current hour in India (IST). After midnight until 5 AM it is still evening. */
 export function istGreeting(now = new Date()) {
   const h = Number(now.toLocaleString('en-GB', { hour: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' }));
-  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  return h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
 }

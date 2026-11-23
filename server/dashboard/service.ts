@@ -8,7 +8,7 @@ import type { SessionUser } from '../auth/sessions.ts';
 import { commissionFor } from '../../shared/rules.ts';
 import { istDate } from '../../shared/time.ts';
 import { placesUsage } from '../places/budget.ts';
-import { commissionInput, followUpState, leadLabel, readLeads, viewContext } from '../leads/service.ts';
+import { byLead, commissionInput, leadLabel, nextAction, readLeads, viewContext } from '../leads/service.ts';
 import { addDays } from '../../shared/slots.ts';
 import { effectiveAssignee } from '../leads/access.ts';
 import { MilestoneService } from '../milestone/service.ts';
@@ -62,12 +62,15 @@ export async function founderDashboard(db: Db) {
   const [leads, ctx, bookings, expirations] = await Promise.all([readLeads(db), viewContext(db), db.all('Bookings'), db.all('Expirations')]);
   const today = istDate(ctx.now);
   const nameOf = (id: string) => ctx.users.find((u) => u.id === id)?.name ?? 'Unknown';
+  const callsBy = byLead(ctx.calls);
+  const bookingsBy = byLead(bookings);
+  const followUpState = (l: Row) => nextAction(l, callsBy.get(l.id) ?? [], bookingsBy.get(l.id) ?? [], ctx.now).followUp;
 
   const expiredByAssignee: Record<string, number> = {};
   for (const e of expirations) expiredByAssignee[nameOf(e.assigneeId)] = (expiredByAssignee[nameOf(e.assigneeId)] ?? 0) + 1;
 
   const label = (id: string) => leadLabel(leads.find((l) => l.id === id) ?? ({ businessName: 'Deleted lead' } as unknown as Row));
-  const dueToday = leads.filter((l) => followUpState(l, today) === 'today');
+  const dueToday = leads.filter((l) => followUpState(l) === 'today');
   const weekEnd = addDays(today, 7);
   const upcoming = bookings
     .filter((b) => b.status === 'booked' && b.date >= today && b.date < weekEnd)
@@ -84,7 +87,7 @@ export async function founderDashboard(db: Db) {
     needs: {
       followUpsToday: dueToday.length,
       firstFollowUpLeadId: dueToday[0]?.id ?? null,
-      overdue: leads.filter((l) => followUpState(l, today) === 'overdue').length,
+      overdue: leads.filter((l) => followUpState(l) === 'overdue').length,
       unclaimed: unclaimed.length,
       callsThisWeek: upcoming.length,
       nextCallDate: upcoming[0]?.date ?? null,
@@ -95,8 +98,8 @@ export async function founderDashboard(db: Db) {
     lastWon: label(leads.filter((l) => l.status === 'Won').sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id ?? ''),
     totals: totals(leads, bookings),
     followUps: {
-      overdue: leads.filter((l) => followUpState(l, today) === 'overdue').length,
-      dueToday: leads.filter((l) => followUpState(l, today) === 'today').length,
+      overdue: leads.filter((l) => followUpState(l) === 'overdue').length,
+      dueToday: leads.filter((l) => followUpState(l) === 'today').length,
     },
     unclaimed: leads.filter((l) => !effectiveAssignee(l, ctx.now)).length,
     breakdowns: {
@@ -121,7 +124,9 @@ async function milestoneSummary(db: Db) {
 
 export async function employeeDashboard(db: Db, user: SessionUser) {
   const [all, ctx, bookings] = await Promise.all([readLeads(db), viewContext(db), db.all('Bookings')]);
-  const today = istDate(ctx.now);
+  const callsBy = byLead(ctx.calls);
+  const bookingsBy = byLead(bookings);
+  const followUpState = (l: Row) => nextAction(l, callsBy.get(l.id) ?? [], bookingsBy.get(l.id) ?? [], ctx.now).followUp;
   const mine = all.filter((l) => effectiveAssignee(l, ctx.now) === user.id);
   const myBookings = bookings.filter((b) => b.bookedBy === user.id && b.status !== 'cancelled');
   const commission = commissionByAssignee(mine, ctx.users.filter((u) => u.id === user.id), ctx.rates)[0] ?? { earned: 0, paid: 0, pending: 0 };
@@ -154,8 +159,8 @@ export async function employeeDashboard(db: Db, user: SessionUser) {
     },
     queue: mine.filter((l) => !bool(l.contacted)).length,
     followUps: {
-      overdue: mine.filter((l) => followUpState(l, today) === 'overdue').length,
-      dueToday: mine.filter((l) => followUpState(l, today) === 'today').length,
+      overdue: mine.filter((l) => followUpState(l) === 'overdue').length,
+      dueToday: mine.filter((l) => followUpState(l) === 'today').length,
     },
     earnings: { earned: commission.earned, paid: commission.paid, pending: commission.pending },
   };

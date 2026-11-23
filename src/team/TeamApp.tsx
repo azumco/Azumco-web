@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Bell, CalendarDays, Clock, Home as HomeIcon, IndianRupee, List, LogOut, Menu, MoreHorizontal, Search, Settings as SettingsIcon, Target,
   Users as UsersIcon, Wallet, X,
+  History as HistoryIcon,
 } from 'lucide-react';
 import { api, setCsrf } from './api';
 import { navigate, usePath } from './router';
@@ -31,6 +32,7 @@ import Goals from './pages/Goals';
 import MyGoals from './pages/MyGoals';
 import Settings from './pages/Settings';
 import Queue from './pages/Queue';
+import History from './pages/History';
 import FollowUps from './pages/FollowUps';
 import Earnings from './pages/Earnings';
 import Notifications from './pages/Notifications';
@@ -87,13 +89,15 @@ const FOUNDER_TABS: NavItem[] = [
   { path: '/team/calendar', label: 'Calendar', icon: CalendarDays },
   { path: '/team/more', label: 'More', icon: MoreHorizontal },
 ];
-const MEMBER_NAV: NavItem[] = [
+// Phone: five tabs (History lives inside Queue). Sidebar: those plus "My leads".
+const MEMBER_TABS: NavItem[] = [
   { path: '/team', label: 'Queue', icon: List },
   { path: '/team/followups', label: 'Follow-ups', icon: Clock },
   { path: '/team/book', label: 'Book', icon: CalendarDays },
   { path: '/team/goals', label: 'Goals', icon: Target },
   { path: '/team/earnings', label: 'Earnings', icon: IndianRupee },
 ];
+const MEMBER_NAV: NavItem[] = [...MEMBER_TABS.slice(0, 2), { path: '/team/history', label: 'My leads', icon: HistoryIcon }, ...MEMBER_TABS.slice(2)];
 
 function founderPage(path: string, user: TeamUser, unread: number, onSignOut: () => void): ReactNode {
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
@@ -122,6 +126,7 @@ function memberPage(path: string, user: TeamUser): ReactNode {
   switch (path) {
     case '/team': return <Queue user={user} />;
     case '/team/followups': return <FollowUps user={user} />;
+    case '/team/history': return <History user={user} />;
     case '/team/book': return <Book user={user} />;
     case '/team/earnings': return <Earnings />;
     case '/team/goals': return <MyGoals user={user} />;
@@ -199,8 +204,15 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
   const [open, setOpen] = useState(false);
   useEffect(() => setOpen(false), [path]);
   const founder = isFounder(user);
+  // Founders keep the sidebar from 1024px (their week views need the width);
+  // team members get it from 768px. Below that: top bar, menu and bottom tabs.
+  const L = founder
+    ? { wrap: 'lg:flex', aside: 'lg:flex', top: 'lg:hidden', menuBtn: 'hidden md:inline-flex', menu: 'hidden md:block lg:hidden' }
+    : { wrap: 'md:flex', aside: 'md:flex', top: 'md:hidden', menuBtn: 'inline-flex', menu: 'block md:hidden' };
   const active = (p: string) =>
     p === '/team' ? path === '/team' : path === p || path.startsWith(`${p}/`) || (p === '/team/money' && ['/team/milestone', '/team/expenses'].includes(path)) || (p === '/team/more' && ['/team/money', '/team/goals', '/team/settings', '/team/notifications'].includes(path));
+  // On phones, History is a segment inside Queue, so the Queue tab stays lit.
+  const tabActive = (p: string) => active(p) || (p === '/team' && !founder && path === '/team/history');
 
   const navList = (
     <nav aria-label="Team" className="flex flex-col gap-1">
@@ -230,9 +242,9 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
   );
 
   return (
-    <div className="lg:flex">
-      {/* ≥1024: sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col justify-between border-r border-line px-4 py-7 lg:flex">
+    <div className={L.wrap}>
+      {/* Sidebar: fixed 248px; the main area is everything to its right. */}
+      <aside className={cx('sticky top-0 hidden h-screen w-[248px] shrink-0 flex-col justify-between overflow-y-auto border-r border-line px-4 py-7', L.aside)}>
         <div>
           <div className="mb-8 pl-2"><Wordmark /></div>
           {navList}
@@ -246,7 +258,7 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
       </aside>
 
       {/* <1024: top bar (menu button only at 768–1023) */}
-      <header className="sticky top-0 z-50 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-5 backdrop-blur-xl lg:hidden">
+      <header className={cx('sticky top-0 z-50 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-4 backdrop-blur-xl md:px-6', L.top)}>
         <Wordmark />
         <div className="flex items-center gap-2">
           <BellLink unread={unread} />
@@ -255,27 +267,33 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
               <Avatar name={user.name} tone={colourTone('brand')} />
             </a>
           )}
-          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label={open ? 'Close menu' : 'Open menu'} className="hidden h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg md:inline-flex">
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label={open ? 'Close menu' : 'Open menu'} className={cx('h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg', L.menuBtn)}>
             {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
         </div>
       </header>
       {open && (
-        <div className="hidden border-b border-line bg-bg px-5 py-4 md:block lg:hidden">
+        <div className={cx('border-b border-line bg-bg px-4 py-4 md:px-6', L.menu)}>
           {navList}
           <div className="mt-4">{userCard}</div>
         </div>
       )}
 
-      <main className={cx('min-w-0 flex-1 px-5 pt-6 sm:px-8 md:pt-8 lg:px-10 lg:pt-11', 'pb-28 md:pb-20')}>
-        <div className="mx-auto max-w-[1120px]">{children}</div>
+      {/*
+        Main: min-w-0 lets it shrink beside the sidebar instead of growing to its
+        content; overflow-x-clip guarantees it never scrolls sideways. Padding
+        16 / 24 / 40px. The content wrapper (max 1280px) is centred inside the
+        main area, not the whole window.
+      */}
+      <main className="min-w-0 flex-1 overflow-x-clip px-4 pb-28 pt-6 md:px-6 md:pb-16 md:pt-8 lg:px-10 lg:pt-10">
+        <div className="mx-auto w-full max-w-[1280px]">{children}</div>
       </main>
 
       {/* <768: bottom tab bar */}
       <nav aria-label="Tabs" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
         <div className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
           {tabs.map((t) => (
-            <a key={t.path} {...link(t.path)} aria-current={active(t.path) ? 'page' : undefined} className={cx('flex min-h-16 flex-col items-center justify-center gap-1 text-[11px]', active(t.path) ? 'text-brand' : 'text-fg-2')}>
+            <a key={t.path} {...link(t.path)} aria-current={tabActive(t.path) ? 'page' : undefined} className={cx('flex min-h-16 flex-col items-center justify-center gap-1 text-[11px]', tabActive(t.path) ? 'text-brand' : 'text-fg-2')}>
               <t.icon className="h-5 w-5" />
               {t.label}
             </a>
@@ -301,7 +319,7 @@ function MemberShell({ user, path, onSignOut }: { user: TeamUser; path: string; 
   const counts = useMemberCounts(path);
   const nav = MEMBER_NAV.map((n) => (n.path === '/team' ? { ...n, count: counts.queue } : n.path === '/team/followups' ? { ...n, count: counts.followUps } : n));
   return (
-    <Shell user={user} path={path} onSignOut={onSignOut} nav={nav} tabs={MEMBER_NAV} unread={unread}>
+    <Shell user={user} path={path} onSignOut={onSignOut} nav={nav} tabs={MEMBER_TABS} unread={unread}>
       {memberPage(path, user) ?? <NotFound />}
     </Shell>
   );

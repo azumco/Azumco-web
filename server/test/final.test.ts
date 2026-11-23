@@ -172,6 +172,9 @@ describe('Greeting uses the time of day in India', () => {
   it('switches at 12:00 and 17:00 IST regardless of the machine time zone', async () => {
     const { istGreeting } = await import('../../src/team/types.ts');
     expect(istGreeting(new Date('2026-11-21T06:29:00Z'))).toBe('Good morning'); // 11:59 IST
+    expect(istGreeting(new Date('2026-11-21T18:49:00Z'))).toBe('Good evening'); // 00:19 IST, after midnight
+    expect(istGreeting(new Date('2026-11-20T23:29:00Z'))).toBe('Good evening'); // 04:59 IST
+    expect(istGreeting(new Date('2026-11-20T23:30:00Z'))).toBe('Good morning'); // 05:00 IST
     expect(istGreeting(new Date('2026-11-21T06:30:00Z'))).toBe('Good afternoon'); // 12:00 IST
     expect(istGreeting(new Date('2026-11-21T11:30:00Z'))).toBe('Good evening'); // 17:00 IST
   });

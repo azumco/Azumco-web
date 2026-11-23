@@ -18,10 +18,18 @@ import { istYearMonth } from '../../shared/time.ts';
 import type { Db } from '../sheets/db.ts';
 import { getSettings } from '../settings.ts';
 import type { PlacesSku } from './client.ts';
+import { PgDb } from '../db/pgdb.ts';
 
 export type ClaimResult = { ok: true; claimId: string } | { ok: false; reason: 'paused' | 'cap_reached' };
 
 export async function claimPlacesCall(db: Db, sku: PlacesSku, actorId: string): Promise<ClaimResult> {
+  // Postgres: the cap is checked and the call counted in ONE statement.
+  if (db instanceof PgDb) {
+    const settings = await getSettings(db, { fresh: true });
+    if (settings.placesPaused) return { ok: false, reason: 'paused' };
+    const id = await db.claimPlacesCall(istYearMonth(db.now()), sku, actorId, settings.placesMonthlyCap);
+    return id ? { ok: true, claimId: id } : { ok: false, reason: 'cap_reached' };
+  }
   return db.exclusive(async () => {
     const settings = await getSettings(db, { fresh: true });
     if (settings.placesPaused) return { ok: false, reason: 'paused' } as const;
@@ -46,6 +54,7 @@ export async function claimPlacesCall(db: Db, sku: PlacesSku, actorId: string): 
 }
 
 export async function releasePlacesCall(db: Db, claimId: string, actorId: string): Promise<void> {
+  if (db instanceof PgDb) return db.releasePlacesCall(claimId, actorId);
   await db.update('PlacesClaims', claimId, { status: 'released' }, actorId);
 }
 

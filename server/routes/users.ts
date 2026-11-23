@@ -1,6 +1,7 @@
 // User management. super_admin only — enforced here on the router, not just
 // hidden in the UI.
 
+import { MEET_LINK_ERROR, normalizeMeetLink } from '../../shared/meet.ts';
 import { Router } from 'express';
 import { z } from 'zod';
 import type { Db } from '../sheets/db.ts';
@@ -14,6 +15,14 @@ import { emailInDomain } from '../../shared/email.ts';
 import { MIN_PASSWORD_LENGTH } from '../auth/passwords.ts';
 import { profileDefaults } from '../users/profile.ts';
 
+/** Validate a Meet link for a user: founders only, strict format; '' clears it. */
+export function checkedMeetLink(raw: string, role: string): string {
+  const link = normalizeMeetLink(raw);
+  if (link === null) throw new HttpError(400, MEET_LINK_ERROR, 'MEET_LINK_INVALID');
+  if (link && role !== 'admin' && role !== 'super_admin') throw new HttpError(400, 'Only founders have a Google Meet link.');
+  return link;
+}
+
 export const publicUser = (u: Row) => ({
   id: u.id,
   email: u.email,
@@ -25,6 +34,7 @@ export const publicUser = (u: Row) => ({
   lockedUntil: u.lockedUntil || null,
   lastLoginAt: u.lastLoginAt || null,
   jobTitle: u.jobTitle ?? '',
+  meetLink: u.meetLink ?? '',
   canReceiveLeads: bool(u.canReceiveLeads),
   calendarColor: u.calendarColor || 'neutral',
   updatedAt: u.updatedAt,
@@ -37,12 +47,14 @@ const patchSchema = z
     active: z.boolean().optional(),
     jobTitle: z.string().trim().max(80).optional(),
     canReceiveLeads: z.boolean().optional(),
+    /** Founders only; '' clears it. Validated below (format https://meet.google.com/abc-defg-hij). */
+    meetLink: z.string().max(200).optional(),
     expectedUpdatedAt: z.string().optional(),
   })
   // Strict: an "email" (or any other) field is rejected, not silently ignored.
   // There is deliberately no way to change an address through the API.
   .strict()
-  .refine((b) => b.role !== undefined || b.active !== undefined || b.jobTitle !== undefined || b.canReceiveLeads !== undefined, 'Nothing to change.');
+  .refine((b) => b.role !== undefined || b.active !== undefined || b.jobTitle !== undefined || b.canReceiveLeads !== undefined || b.meetLink !== undefined, 'Nothing to change.');
 
 /** New teammate: super admin only, company domain only, no password until one is issued. */
 const createSchema = z
@@ -145,6 +157,7 @@ export function usersRoutes(db: Db, allowedDomain: string) {
     const patch: Record<string, string> = {};
     if (parsed.data.jobTitle !== undefined) patch.jobTitle = parsed.data.jobTitle;
     if (parsed.data.canReceiveLeads !== undefined) patch.canReceiveLeads = boolCell(parsed.data.canReceiveLeads);
+    if (parsed.data.meetLink !== undefined) patch.meetLink = checkedMeetLink(parsed.data.meetLink, user.role);
     if (parsed.data.role) patch.role = parsed.data.role;
     if (parsed.data.active !== undefined) {
       patch.active = boolCell(parsed.data.active);

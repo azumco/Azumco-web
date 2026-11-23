@@ -22,7 +22,14 @@
     "env:check": "tsx --env-file-if-exists=.env server/scripts/env-check.ts",
     "staging": "tsx --env-file-if-exists=.env server/scripts/staging.ts",
     "start:local": "node --env-file-if-exists=.env dist-server/index.js",
-    "staging:walk": "tsx --env-file-if-exists=.env server/scripts/staging-walk.ts"
+    "staging:walk": "tsx --env-file-if-exists=.env server/scripts/staging-walk.ts",
+    "reset-password": "tsx --env-file-if-exists=.env server/scripts/reset-password.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env server/scripts/db-migrate.ts",
+    "test:pg": "tsx --env-file-if-exists=.env server/test/run-pg.ts",
+    "db:import-from-sheets": "tsx --env-file-if-exists=.env server/scripts/db-import.ts",
+    "db:backup": "tsx --env-file-if-exists=.env server/scripts/db-backup.ts",
+    "db:restore": "tsx --env-file-if-exists=.env server/scripts/db-restore.ts",
+    "bench": "tsx --env-file-if-exists=.env server/scripts/bench.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
@@ -30,6 +37,7 @@
     "lenis": "^1.3.4",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "pg": "^8.23.1",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "zod": "^4.6.7"
@@ -38,6 +46,7 @@
     "@tailwindcss/vite": "^4.1.14",
     "@types/express": "^5.0.6",
     "@types/node": "^22.14.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^5.0.4",

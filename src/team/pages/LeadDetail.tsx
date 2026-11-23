@@ -3,7 +3,7 @@
 // edit, assign, commission and delete.
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { AlertTriangle, ArrowLeft, CalendarPlus, Check, ChevronRight, ExternalLink, MapPin, MessageCircle, Phone, Trash2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, CalendarPlus, Check, ChevronRight, ExternalLink, Lock, MapPin, MessageCircle, Phone, Trash2 } from 'lucide-react';
 import { CALL_OUTCOMES, DEAL_TYPES, LEAD_STATUSES, NEEDS, NEXT_STEPS, RATINGS } from '../../../shared/rules';
 import { formatDate, formatDateTime, formatInr } from '../../../shared/time';
 import { ApiError, api } from '../api';
@@ -28,7 +28,7 @@ export const shortLabel = (l: Lead) => l.label.replace(/ · Google lead$/, '');
 
 // ─── Contact (live from Google, or our confirmed record) ──────────────────
 
-function LiveContact({ lead, auto, wide }: { lead: Lead; auto: boolean; wide?: boolean }) {
+export function LiveContact({ lead, auto, wide }: { lead: Lead; auto: boolean; wide?: boolean }) {
   const [contact, setContact] = useState<{ name: string; address: string; phone: string; website: string } | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,7 +59,7 @@ function LiveContact({ lead, auto, wide }: { lead: Lead; auto: boolean; wide?: b
 
   return (
     <div className="rounded-3xl border border-line bg-bg-3/40 p-5">
-      <p className="text-[11px] uppercase tracking-[0.16em] text-fg-3">From Google Maps · not saved</p>
+      <p className="text-[11px] uppercase tracking-[0.16em] text-fg-3">From Google Maps · shown live, not saved</p>
       {loading && <Loading label="Looking up on Google…" />}
       {!loading && error && <div className="mt-4"><ErrorText>{error}</ErrorText></div>}
       {!loading && !contact && !error && !auto && (
@@ -69,7 +69,7 @@ function LiveContact({ lead, auto, wide }: { lead: Lead; auto: boolean; wide?: b
         </div>
       )}
       {contact && !loading && (
-        <div className={cx('mt-2', wide && 'sm:flex sm:items-start sm:justify-between sm:gap-6')}>
+        <div className={cx('mt-2', wide && '@min-[480px]:flex @min-[480px]:items-start @min-[480px]:justify-between @min-[480px]:gap-6')}>
           <div className="min-w-0">
             <p className="text-2xl font-medium tracking-[-0.02em]">{contact.name || 'Name not listed'}</p>
             {contact.address && <p className="mt-1.5 flex items-start gap-2 text-sm text-fg-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" />{contact.address}</p>}
@@ -77,7 +77,7 @@ function LiveContact({ lead, auto, wide }: { lead: Lead; auto: boolean; wide?: b
             {contact.website && <a href={contact.website} target="_blank" rel="noreferrer noopener" className="mt-1 inline-flex min-h-11 items-center gap-2 text-sm text-fg-2 hover:text-fg"><ExternalLink className="h-4 w-4" /> Website</a>}
           </div>
           {contact.phone && (
-            <div className={cx('mt-4 grid grid-cols-2 gap-2', wide && 'sm:mt-0 sm:w-44 sm:grid-cols-1')}>
+            <div className={cx('mt-4 grid grid-cols-2 gap-2', wide && '@min-[480px]:mt-0 @min-[480px]:w-44 @min-[480px]:shrink-0 @min-[480px]:grid-cols-1')}>
               <a href={`tel:${contact.phone.replace(/\s/g, '')}`} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-brand text-sm font-medium text-bg"><Phone className="h-4 w-4" /> Call now</a>
               <a href={waLink(contact.phone)} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full border border-line-2 text-sm"><MessageCircle className="h-4 w-4" /> WhatsApp</a>
             </div>
@@ -157,7 +157,10 @@ export function ConfirmContact({ lead, open, onClose, onDone }: { lead: Lead; op
             </p>
           )}
         </div>
-        <p className="text-xs text-fg-3">Type what you confirmed on the call. Google's details are not copied automatically.</p>
+        <p className="flex items-start gap-3 rounded-2xl bg-bg-3/70 px-4 py-3 text-xs text-fg-2">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-fg-3" />
+          Type what you confirmed on the call. Google's details are never copied automatically.
+        </p>
         <ErrorText>{error}</ErrorText>
         <div className="grid grid-cols-2 gap-3">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
@@ -170,12 +173,14 @@ export function ConfirmContact({ lead, open, onClose, onDone }: { lead: Lead; op
 
 // ─── Log a call ───────────────────────────────────────────────────────────
 
-function LogCall({ lead, msLeft, onLogged, wide }: { lead: Lead; msLeft: number | null; onLogged: () => void; wide?: boolean }) {
+function LogCall({ lead, msLeft, onLogged, wide, numbered }: { lead: Lead; msLeft: number | null; onLogged: () => void; wide?: boolean; numbered?: boolean }) {
+  const n = (i: number) => (numbered ? i : undefined);
   const [outcome, setOutcome] = useState('');
   const [rating, setRating] = useState<string>(lead.rating);
   const [needs, setNeeds] = useState<string[]>([]);
+  // A call replaces the follow-up with what THIS call chose, so both start empty.
   const [nextStep, setNextStep] = useState<string>('');
-  const [followUpDate, setFollowUpDate] = useState(lead.followUpDate);
+  const [followUpDate, setFollowUpDate] = useState('');
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState('');
@@ -186,8 +191,8 @@ function LogCall({ lead, msLeft, onLogged, wide }: { lead: Lead; msLeft: number 
     setOutcome('');
     setRating(lead.rating);
     setNeeds(lead.need ? lead.need.split(',').map((s) => s.trim()).filter((s) => (NEEDS as readonly string[]).includes(s)) : []);
-    setNextStep((NEXT_STEPS as readonly string[]).includes(lead.nextStep) ? lead.nextStep : '');
-    setFollowUpDate(lead.followUpDate);
+    setNextStep('');
+    setFollowUpDate('');
     setNote('');
     setDone('');
     setError('');
@@ -210,35 +215,36 @@ function LogCall({ lead, msLeft, onLogged, wide }: { lead: Lead; msLeft: number 
   return (
     <form onSubmit={submit} className="space-y-6">
       {msLeft !== null && msLeft > 0 && msLeft < FIFTEEN_MIN && <ErrorText>Under 15 minutes left. Save the call now or this lead goes back to the founders.</ErrorText>}
-      <div className={cx('grid gap-6', wide && 'xl:grid-cols-2')}>
+      <div className={cx('grid gap-6', wide && '@min-[600px]:grid-cols-2 @min-[600px]:gap-x-8')}>
         <div className="space-y-6">
-          <ChipGroup label="How did the call go?" options={CALL_OUTCOMES.map((o) => o.value)} value={outcome} onChange={setOutcome} />
+          <ChipGroup step={n(1)} label="How did the call go?" options={CALL_OUTCOMES.map((o) => o.value)} value={outcome} onChange={setOutcome} />
           <Segmented
+            step={n(2)}
             label="Rate this lead"
             options={RATINGS.map((r) => ({ value: r, label: <><span className={cx('h-2 w-2 rounded-full', r === 'Good' ? 'bg-good' : r === 'Intermediate' ? 'bg-warn' : 'bg-bad')} />{r}</> }))}
             value={rating as (typeof RATINGS)[number]}
             onChange={setRating}
           />
-          <MultiChips label="What do they need?" options={NEEDS} value={needs as (typeof NEEDS)[number][]} onChange={setNeeds} />
+          <MultiChips step={n(3)} label="What do they need?" options={NEEDS} value={needs as (typeof NEEDS)[number][]} onChange={setNeeds} />
         </div>
         <div className="space-y-6">
-          <ChipGroup label="Next step" options={NEXT_STEPS} value={nextStep as (typeof NEXT_STEPS)[number] | ''} onChange={setNextStep} />
-          <QuickDate label="Follow-up" value={followUpDate} onChange={setFollowUpDate} />
+          <ChipGroup step={n(4)} label="Next step" options={NEXT_STEPS} value={nextStep as (typeof NEXT_STEPS)[number] | ''} onChange={setNextStep} />
+          <QuickDate step={n(5)} label="Follow-up" value={followUpDate} onChange={setFollowUpDate} />
           <Field label="Note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Free after 5 PM…" />
         </div>
       </div>
-      <div className={cx('flex flex-col gap-3', wide && 'xl:flex-row xl:items-stretch')}>
+      <div className={cx('flex flex-col gap-3', wide && '@min-[600px]:flex-row @min-[600px]:items-center')}>
         {lead.needsLiveLookup && (
           <button type="button" onClick={() => setConfirming(true)} className="flex flex-1 items-center gap-4 rounded-3xl border border-brand/40 bg-brand/5 p-4 text-left">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand"><Check className="h-4 w-4" /></span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-medium text-fg">Reached the right person? Confirm contact</span>
-              <span className="block text-xs text-fg-2">Saves their name & number for good</span>
+              <span className="block text-xs text-fg-2">Saves their name and number for good</span>
             </span>
             <ChevronRight className="h-4 w-4 text-fg-3" />
           </button>
         )}
-        <div className={cx('sticky bottom-16 z-30 -mx-5 bg-gradient-to-t from-bg from-60% to-transparent px-5 pb-3 pt-8 md:static md:m-0 md:bg-none md:p-0', wide && 'xl:w-40 xl:self-center')}>
+        <div className={cx('sticky bottom-16 z-30 -mx-5 bg-gradient-to-t from-bg from-60% to-transparent px-5 pb-3 pt-8 md:static md:m-0 md:bg-none md:p-0', wide && '@min-[600px]:w-40 @min-[600px]:shrink-0')}>
           <Button type="submit" busy={busy} className="w-full shadow-lg shadow-black/40 md:shadow-none">Save call</Button>
         </div>
       </div>
@@ -314,7 +320,9 @@ function EditLead({ lead, founder, open, onClose, onSaved }: { lead: Lead; found
 
 // ─── Panel (shared by the page and the laptop side panel) ─────────────────
 
-export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user: TeamUser; embedded?: boolean; onChanged?: () => void }) {
+export function LeadPanel({ id, user, embedded, fullWidth, onChanged }: { id: string; user: TeamUser; embedded?: boolean; fullWidth?: boolean; onChanged?: () => void }) {
+  // Two-column layout whenever there is room (side panel or the full lead page).
+  const wide = embedded || fullWidth;
   const state = useApi<Detail>(`/leads/${id}`);
   const now = useServerNow(state.data?.serverNow, 10_000);
   const founder = isFounder(user);
@@ -342,14 +350,14 @@ export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user:
               )}
               <div className="min-w-0 flex-1">
                 <h1 className={cx('truncate font-medium tracking-[-0.02em]', embedded ? 'text-2xl' : 'text-xl sm:text-2xl')}>{shortLabel(lead)}</h1>
-                <p className="text-xs text-fg-3">{lead.timerRunning ? 'Disappears unless you log a call' : leadSubline(lead)}</p>
+                <p className="text-xs text-fg-3">{lead.timerRunning ? 'Disappears unless you log a call' : [leadSubline(lead), lead.nextAction].filter(Boolean).join(' · ')}</p>
               </div>
               {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
             </div>
 
-            {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} wide={embedded} /> : <StoredContact lead={lead} />}
+            {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} wide={wide} /> : <StoredContact lead={lead} />}
 
-            <LogCall lead={lead} msLeft={lead.timerRunning ? msLeft : null} onLogged={reload} wide={embedded} />
+            <LogCall lead={lead} msLeft={lead.timerRunning ? msLeft : null} onLogged={reload} wide={wide} numbered={!founder} />
 
             <div className="flex flex-wrap gap-2">
               <Button variant="secondary" size="sm" onClick={() => navigate(`/team/book?lead=${lead.id}`)}><CalendarPlus className="h-4 w-4" /> Book discovery call</Button>
@@ -416,8 +424,10 @@ export function LeadPanel({ id, user, embedded, onChanged }: { id: string; user:
 
 export default function LeadDetail({ id, user }: { id: string; user: TeamUser }) {
   return (
-    <div className="mx-auto max-w-2xl">
-      <LeadPanel id={id} user={user} />
+    // Full width of the content area (no inner scroll); the form goes to two
+    // columns when the page is wide enough, like the laptop side panel.
+    <div className="@container">
+      <LeadPanel id={id} user={user} fullWidth />
     </div>
   );
 }

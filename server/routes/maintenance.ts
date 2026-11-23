@@ -1,7 +1,7 @@
-// Token-protected maintenance for an external free scheduler (Render free has
-// no cron). Runs the assignment-expiry sweep. Expiry is also evaluated on every
-// read, so this only makes the founders' notifications timely when nobody is
-// using the app.
+// Token-protected manual / backup trigger for the maintenance job. The server
+// already runs the same job itself every 15 minutes (server/scheduler.ts,
+// INTERNAL_SCHEDULER). Expiry is also evaluated on every read, so the job only
+// makes notifications timely when nobody is using the app.
 //
 //   POST or GET /api/maintenance/run
 //   Authorization: Bearer <CRON_TOKEN>       (preferred)
@@ -14,7 +14,7 @@ import type { Config } from '../config.ts';
 import type { Db } from '../sheets/db.ts';
 import { HttpError } from '../auth/middleware.ts';
 import { safeEqual } from '../auth/sessions.ts';
-import { notifyExpiringSoon, sweepExpired } from '../leads/service.ts';
+import { runMaintenance } from '../leads/service.ts';
 import { log } from '../lib/log.ts';
 
 export function maintenanceRoutes(config: Config, db: Db, ready: Promise<void>) {
@@ -25,8 +25,7 @@ export function maintenanceRoutes(config: Config, db: Db, ready: Promise<void>) 
     const token = header || (typeof req.query.token === 'string' ? req.query.token : '');
     if (!safeEqual(token, config.CRON_TOKEN)) throw new HttpError(401, 'Unauthorized.');
     await ready;
-    const expired = await sweepExpired(db);
-    const expiring = await notifyExpiringSoon(db);
+    const { expired, expiring } = await runMaintenance(db);
     log.info('maintenance run', { expired, expiring });
     res.json({ ok: true, expired, expiring, at: db.now().toISOString() });
   };

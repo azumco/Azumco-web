@@ -19,6 +19,10 @@ const state: Record<string, string> = existsSync(statePath) ? JSON.parse(readFil
 const save = () => writeFileSync(statePath, JSON.stringify(state));
 const needle = (...v: (string | undefined)[]) => v.filter((s) => s && s.length >= 4).forEach((s) => appendFileSync(needlesFile, `${s}\n`));
 
+// The search for phase a (WALK_CATEGORY / WALK_CITY, default Gym in Bhopal).
+const CAT = process.env.WALK_CATEGORY || 'Gym';
+const CITY = process.env.WALK_CITY || 'Bhopal';
+
 let failures = 0;
 const check = (label: string, ok: boolean, info = '') => {
   if (!ok) failures++;
@@ -72,7 +76,7 @@ async function main() {
     const s0 = (await owner.req('GET', '/api/places/status')).body;
     check('2. Places status before', s0.enabled !== false, `used ${JSON.stringify(s0.used ?? s0.usage ?? s0)}`.slice(0, 160));
 
-    const search = await owner.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 2 });
+    const search = await owner.req('POST', '/api/places/search', { category: CAT, state: 'Madhya Pradesh', city: CITY, limit: 2 });
     console.log('      REAL PLACES CALL #1 (Text Search) made');
     if (search.status !== 200) {
       check('3. search', false, `status ${search.status} code ${search.body.code ?? ''} error ${search.body.error ?? ''}`);
@@ -83,12 +87,12 @@ async function main() {
     check('3. search returns results with contact fields', results.length > 0 && results.every((r) => r.placeId && r.name), `${results.length} result(s), phone on ${results.filter((r) => r.phone).length}`);
 
     const imp = await owner.req('POST', '/api/places/import', {
-      category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', searchedAt: search.body.searchedAt,
+      category: CAT, state: 'Madhya Pradesh', city: CITY, searchedAt: search.body.searchedAt,
       placeIds: results.map((r) => r.placeId), assignTo: staffId, windowHours: 24,
     });
     check('4. import + assign to team member', imp.status === 200, `status ${imp.status} ${imp.body.error ?? ''}`);
 
-    const mine = (await staff.req('GET', '/api/leads')).body.leads as any[];
+    const mine = ((await staff.req('GET', '/api/leads')).body.leads as any[]).filter((l) => l.category === CAT && l.city === CITY && l.timerRunning);
     check('5. team member sees assigned leads (no Places names stored)', mine.length === results.length, `${mine.length} lead(s); labels: ${mine.map((l) => (results.some((r) => r.name === l.label) ? 'PLACES-NAME!' : 'generic')).join(',')}`);
     const expiresInMin = mine.map((l) => Math.round((new Date(l.expiresAt).getTime() - Date.now()) / 60000));
     check('5. staging timer is short', expiresInMin.every((m) => m <= 3), `expires in ${expiresInMin.join(',')} min`);
@@ -158,6 +162,37 @@ async function main() {
     console.log(`      usage counter: ${JSON.stringify(after.used ?? after.usage ?? after).slice(0, 200)}`);
     const audit = ((await owner.req('GET', '/api/audit')).body.entries as any[]).map((e) => e.action);
     console.log(`      audit actions: ${[...new Set(audit)].join(', ')}`);
+  }
+  if (phase === 'confirm') {
+    // Re-run the contact confirmation with another test number (WALK_PHONE).
+    const phone = process.env.WALK_PHONE || '90000 00002';
+    const pc = await staff.req('POST', `/api/leads/${state.lead1}/phone-check`, { phone });
+    check('6. phone pre-check (new number)', pc.status === 200 && !pc.body.duplicateOf, JSON.stringify(pc.body));
+    const conf = await staff.req('POST', `/api/leads/${state.lead1}/confirm`, { businessName: 'Staging Walk Cafe', contactPerson: 'Test Person', phone });
+    check('6. confirm contact (typed values)', conf.status === 200, `status ${conf.status} ${conf.body.error ?? ''}`);
+  }
+
+  if (phase === 'c') {
+    // The other roles and the money/goals/settings side.
+    const admin = new Client('admin');
+    const la = await admin.login('admin');
+    check('1. admin (founder) signs in', la.status === 200, `status ${la.status}`);
+    const today = istDate(new Date());
+    const exp = await admin.req('POST', '/api/finance/expenses', { date: today, item: 'Staging walk test expense', amount: 123, paidBy: 'Company Fund', project: 'General' });
+    check('10. founder adds an expense', exp.status === 201, `status ${exp.status} ${exp.body.error ?? ''}`);
+    const fin = (await admin.req('GET', '/api/finance')).body;
+    check('10. expense shows in the money summary', JSON.stringify(fin).includes('Staging walk test expense'));
+    const goals = (await owner.req('GET', '/api/goals')).body.goals as { id: string; canChangeStatus: boolean; status: string; updatedAt: string; task: string }[];
+    const mine = goals.find((g) => g.canChangeStatus && g.status !== 'Done');
+    if (mine) {
+      const tick = await owner.req('PATCH', `/api/goals/${mine.id}`, { status: 'Done', expectedUpdatedAt: mine.updatedAt });
+      check('11. goal ticked by the person it is assigned to', tick.status === 200, `status ${tick.status} ${tick.body.error ?? ''}`);
+    } else console.log('SKIP  11. no open goal assigned to the super admin');
+    const s1 = await owner.req('PUT', '/api/settings', { commissionQualifiedFee: 250 });
+    const s2 = await owner.req('PUT', '/api/settings', { commissionQualifiedFee: 200 });
+    check('12. settings change (and back)', s1.status === 200 && s2.status === 200, `status ${s1.status}/${s2.status}`);
+    const audit = ((await owner.req('GET', '/api/audit')).body.entries as any[]).map((e) => e.action);
+    console.log(`      audit actions now include: ${[...new Set(audit)].filter((x) => /expense|goal|settings|finance/.test(x)).join(', ')}`);
   }
   console.log(`\n${failures ? `${failures} FAILURE(S)` : 'All checks passed.'}`);
   if (failures) process.exitCode = 1;

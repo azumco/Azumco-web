@@ -288,7 +288,7 @@ describe('AC6 — no Places name/address/phone/website in Sheets, logs or audit 
       await staff.req('GET', `/api/leads/${leads[2].id}/live-contact`);
 
       const tabs = ['Users', 'Sessions', 'Settings', 'Audit', 'Meta', 'Leads', 'CallLog', 'Expirations', 'PlacesClaims', 'Availability', 'Bookings', 'Notifications', 'Expenses', 'Projects', 'Goals'];
-      const everything = JSON.stringify(await h.backend.readTabs(tabs)) + logged.join('\n');
+      const everything = JSON.stringify(await h.snapshot(tabs)) + logged.join('\n');
       for (const p of FAKE.slice(0, 8)) {
         expect(everything).not.toContain(p.name);
         expect(everything).not.toContain(p.address);
@@ -501,14 +501,14 @@ describe('AC12 — two simultaneous bookings for one slot: exactly one succeeds'
   it('across two server processes (write-then-read-back)', async () => {
     const { l1, l2, body } = await prepare();
     const { BookingService } = await import('../bookings/service.ts');
-    const other = new Db(h.backend, { now: h.clock.now });
+    const other = await h.secondDb();
     const user = toSessionUser((await h.db.all('Users')).find((u) => u.id === staffId)!);
     const results = await Promise.allSettled([
       new BookingService(h.db).book(user, { ...body(l1), phone: '', link: '', notes: '' } as never),
       new BookingService(other).book(user, { ...body(l2), phone: '', link: '', notes: '' } as never),
     ]);
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    const [grid] = await h.backend.readTabs(['Bookings']);
+    const [grid] = await h.snapshot(['Bookings']);
     const status = grid[0].indexOf('status');
     expect(grid.slice(1).filter((r) => r[status] === 'booked')).toHaveLength(1);
   });

@@ -20,6 +20,10 @@ import { BookingService, availabilitySchema, bookingSchema, rescheduleSchema, sl
 import { FinanceService } from '../finance/service.ts';
 import { GoalService } from '../goals/service.ts';
 import { employeeDashboard, founderDashboard } from '../dashboard/service.ts';
+import { checkedMeetLink } from './users.ts';
+import { leadHistory, leadHistoryDetail } from '../leads/history.ts';
+import { setupChecklist } from '../setup/checklist.ts';
+import { audit } from '../audit.ts';
 
 const FOUNDERS = requireRole('admin');
 const SUPER = requireRole('super_admin');
@@ -51,6 +55,19 @@ export function workRoutes(db: Db, places: PlacesService) {
     if (me(res).role === 'employee') await notifyExpiringSoon(db).catch(() => 0);
     const [rows, ctx] = await Promise.all([visibleLeads(db, me(res)), viewContext(db)]);
     res.json({ leads: rows.map((l) => leadView(l, ctx)), serverNow: ctx.now.toISOString() });
+  });
+
+  // Founders: the "Get ready" checklist (derived from live data).
+  r.get('/setup-checklist', FOUNDERS, async (_req, res) => {
+    res.json(await setupChecklist(db, bookings, me(res), places.enabled));
+  });
+
+  // A team member's own history (registered before /leads/:id).
+  r.get('/leads/history', async (_req, res) => {
+    res.json({ leads: await leadHistory(db, me(res)), serverNow: db.now().toISOString() });
+  });
+  r.get('/leads/history/:id', async (req, res) => {
+    res.json(await leadHistoryDetail(db, me(res), param(req, 'id')));
   });
 
   r.get('/leads/export.csv', FOUNDERS, async (_req, res) => {
@@ -180,8 +197,20 @@ export function workRoutes(db: Db, places: PlacesService) {
     const founders = users.filter((u) => (u.role === 'admin' || u.role === 'super_admin') && u.active !== 'FALSE');
     res.json({
       slots: await bookings.slots(q.from ?? istDate(db.now()), q.days, q.founderId),
-      founders: founders.map((u) => ({ id: u.id, name: u.name, calendarColor: u.calendarColor || 'neutral' })),
+      // Meet links are shown to signed-in team users only (this route needs a session).
+      founders: founders.map((u) => ({ id: u.id, name: u.name, calendarColor: u.calendarColor || 'neutral', meetLink: u.meetLink ?? '' })),
     });
+  });
+
+  // A founder sets their own Google Meet link (the super admin can also set
+  // anyone's in Settings). Team members get 403.
+  r.patch('/me/meet-link', FOUNDERS, async (req, res) => {
+    const actor = me(res);
+    const { meetLink } = parse(z.object({ meetLink: z.string().max(200) }).strict(), req.body);
+    const link = checkedMeetLink(meetLink, actor.role);
+    const { before } = await db.update('Users', actor.id, { meetLink: link }, actor.id);
+    await audit(db, { actorId: actor.id, action: 'users.meet_link', entity: 'Users', entityId: actor.id, before: { meetLink: before.meetLink ?? '' }, after: { meetLink: link }, ip: req.ip });
+    res.json({ meetLink: link });
   });
 
   r.get('/bookings', async (_req, res) => {
@@ -209,6 +238,11 @@ export function workRoutes(db: Db, places: PlacesService) {
   });
   r.post('/bookings', async (req, res) => {
     res.status(201).json({ booking: await bookings.book(me(res), parse(bookingSchema, req.body)) });
+  });
+  r.patch('/bookings/:id/link', FOUNDERS, async (req, res) => {
+    const { link } = parse(z.object({ link: z.string().max(200) }).strict(), req.body);
+    const b = await bookings.setLink(me(res), param(req, 'id'), link);
+    res.json({ booking: { id: b.id, link: b.link } });
   });
   r.post('/bookings/:id/cancel', FOUNDERS, async (req, res) => {
     await bookings.cancel(me(res), param(req, 'id'));

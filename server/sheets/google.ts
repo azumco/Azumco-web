@@ -125,6 +125,11 @@ export class GoogleSheetsBackend implements SheetsBackend {
     }, this.retry);
   }
 
+  /** The spreadsheet's title, for confirmation prompts in local scripts. */
+  async spreadsheetTitle(): Promise<string> {
+    return (await this.call<{ properties: { title: string } }>('GET', '?fields=properties.title')).properties.title;
+  }
+
   async listTabs(): Promise<TabInfo[]> {
     const data = await this.call<{ sheets: { properties: { title: string; sheetId: number } }[] }>(
       'GET',

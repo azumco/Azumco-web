@@ -20,6 +20,8 @@ import { assertLeadAccess, isFounder } from '../leads/access.ts';
 import { leadLabel, readLeads } from '../leads/service.ts';
 import { normalizePhone } from '../../shared/phone.ts';
 import { formatDate } from '../../shared/time.ts';
+import { isConstraintViolation } from '../db/pg.ts';
+import { DEFAULT_MEETING_MODE, MEET_LINK_ERROR, MEETING_MODES, normalizeMeetLink } from '../../shared/meet.ts';
 import { expandRules, planSlots, type AvailRule } from '../../shared/slots.ts';
 
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use a time like 14:30.');
@@ -36,7 +38,7 @@ export const availabilitySchema = z
   })
   .refine((a) => a.start < a.end, { message: 'The end time must be after the start time.' });
 
-export const MEETING_MODES = ['Zoho Cliq', 'Phone call', 'In person'] as const;
+export { MEETING_MODES };
 
 export const bookingSchema = z.object({
   leadId: z.string().min(1),
@@ -45,7 +47,8 @@ export const bookingSchema = z.object({
   start: hhmm,
   clientName: z.string().trim().min(1, 'Enter the client name.').max(150),
   phone: z.string().trim().max(40).default(''),
-  mode: z.enum(MEETING_MODES),
+  mode: z.enum(MEETING_MODES).default(DEFAULT_MEETING_MODE),
+  /** Zoho Cliq: the room link. Google Meet: this booking's link (prefilled with the founder's saved one; the booker may paste their own). */
   link: z.string().trim().max(500).default(''),
   notes: z.string().trim().max(1000).default(''),
 });
@@ -184,6 +187,9 @@ export class BookingService {
     assertLeadAccess(actor, lead, this.db.now(), await this.db.all('Expirations'));
     const phone = input.phone ? normalizePhone(input.phone) : '';
     if (input.phone && !phone) throw new HttpError(400, 'That phone number does not look right.');
+    const meet = input.mode === 'Google Meet';
+    const override = meet ? normalizeMeetLink(input.link) : '';
+    if (meet && override === null) throw new HttpError(400, MEET_LINK_ERROR, 'MEET_LINK_INVALID');
 
     return this.db.exclusive(async () => {
       const now = this.db.now();
@@ -192,8 +198,18 @@ export class BookingService {
         (s) => !s.booked && s.start === input.start && (input.founderId === 'any' || s.founderId === input.founderId),
       );
       if (!open.length) throw new HttpError(409, 'That slot is no longer available. Pick another time.', 'SLOT_TAKEN');
-      const slot = open[0];
+      const users = await this.db.all('Users');
+      const meetOf = (id: string) => normalizeMeetLink(users.find((u) => u.id === id)?.meetLink) || '';
+      // "Any founder" with Google Meet: prefer a founder who has a Meet link saved.
+      const slot = meet ? (open.find((s) => meetOf(s.founderId)) ?? open[0]) : open[0];
+      // The link typed on the booking wins; otherwise the founder's saved link.
+      const link = meet ? override || meetOf(slot.founderId) || '' : input.link;
+      if (meet && !link) {
+        const name = (users.find((u) => u.id === slot.founderId)?.name ?? 'This founder').split(' ')[0];
+        throw new HttpError(400, `${name} hasn't added a Meet link yet. Paste a Meet link for this booking.`, 'MEET_LINK_MISSING');
+      }
 
+      // Postgres also enforces this with an exclusion constraint (no overlapping active bookings per founder).
       const mine = await this.db.insertUnqueued('Bookings', {
         leadId: input.leadId,
         founderId: slot.founderId,
@@ -204,11 +220,14 @@ export class BookingService {
         clientName: input.clientName,
         phone: phone || '',
         mode: input.mode,
-        link: input.link,
+        link,
         notes: input.notes,
         bookedBy: actor.id,
         callHappened: '',
-      }, actor.id);
+      }, actor.id).catch((e) => {
+        if (isConstraintViolation(e)) throw new HttpError(409, 'That slot was just taken. Pick another time.', 'SLOT_TAKEN');
+        throw e;
+      });
 
       // Read back: the earliest overlapping active booking in sheet order wins.
       const [after] = await this.db.loadFresh(['Bookings']);
@@ -218,15 +237,15 @@ export class BookingService {
         throw new HttpError(409, 'That slot was just taken. Pick another time.', 'SLOT_TAKEN');
       }
 
-      await this.db.updateUnqueued('Leads', input.leadId, { discoveryCallDate: slot.date }, actor.id);
-      const users = await this.db.all('Users');
+      // Booking a discovery call clears any pending follow-up and next step.
+      await this.db.updateUnqueued('Leads', input.leadId, { discoveryCallDate: slot.date, followUpDate: '', nextStep: '' }, actor.id);
       const first = (id: string) => (users.find((u) => u.id === id)?.name ?? '').split(' ')[0];
       const time = to12(slot.start);
       await notifyUnqueued(this.db, [
         {
           userId: slot.founderId,
           type: 'booking_created',
-          message: `Discovery call booked: ${leadLabel(lead)} on ${formatDate(slot.date)} at ${time} (${input.mode}) by ${first(actor.id)}.`,
+          message: `Discovery call booked: ${leadLabel(lead)} on ${formatDate(slot.date)} at ${time} (${input.mode}) by ${first(actor.id)}.${meet ? ` Google Meet: ${link}` : ''}`,
           refId: mine.id,
         },
         ...(actor.id !== slot.founderId
@@ -242,6 +261,19 @@ export class BookingService {
     const b = await this.db.find('Bookings', id);
     if (!b) throw new HttpError(404, 'Booking not found.');
     return b;
+  }
+
+  /** Founders change the meeting link on an existing Google Meet booking. */
+  async setLink(actor: SessionUser, id: string, raw: string) {
+    const b = await this.ownBooking(actor, id);
+    if (b.mode !== 'Google Meet') throw new HttpError(400, 'Only Google Meet bookings have a Meet link.');
+    const link = normalizeMeetLink(raw);
+    if (!link) throw new HttpError(400, MEET_LINK_ERROR, 'MEET_LINK_INVALID');
+    return this.db.exclusive(async () => {
+      const { after } = await this.db.updateUnqueued('Bookings', id, { link }, actor.id);
+      await auditUnqueued(this.db, [{ actorId: actor.id, action: 'booking.link', entity: 'Bookings', entityId: id, before: { link: b.link }, after: { link } }]);
+      return after;
+    });
   }
 
   async cancel(actor: SessionUser, id: string) {
@@ -266,7 +298,10 @@ export class BookingService {
       const slot = expandSlots(availability.rows, others, input.date, 1, now, b.founderId).find((s) => !s.booked && s.start === input.start);
       if (!slot) throw new HttpError(409, 'That slot is not available.', 'SLOT_TAKEN');
 
-      const { before } = await this.db.updateUnqueued('Bookings', id, { date: slot.date, start: slot.start, end: slot.end, status: 'booked' }, actor.id);
+      const { before } = await this.db.updateUnqueued('Bookings', id, { date: slot.date, start: slot.start, end: slot.end, status: 'booked' }, actor.id).catch((e) => {
+        if (isConstraintViolation(e)) throw new HttpError(409, 'That slot was just taken.', 'SLOT_TAKEN');
+        throw e;
+      });
       const [after] = await this.db.loadFresh(['Bookings']);
       const winner = after.rows.find((x) => isActive(x) && x.founderId === b.founderId && overlaps(x, slot));
       if (winner && winner.id !== id) {

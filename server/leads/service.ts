@@ -13,7 +13,8 @@ import { auditUnqueued } from '../audit.ts';
 import { founderIds, notify, notifyUnqueued, type Notice } from '../notifications.ts';
 import { getSettings } from '../settings.ts';
 import { normalizePhone } from '../../shared/phone.ts';
-import { istDate } from '../../shared/time.ts';
+import { fromIst, istDate } from '../../shared/time.ts';
+import { istWhen } from '../../shared/meet.ts';
 import {
   CALL_OUTCOMES, DEAL_TYPES, LEAD_SOURCES, LEAD_STATUSES, RATINGS, commissionFor, isReachedOutcome,
 } from '../../shared/rules.ts';
@@ -125,6 +126,20 @@ export async function notifyExpiringSoon(db: Db): Promise<number> {
   return fresh.length;
 }
 
+/**
+ * The maintenance job: return lapsed assignments and send "expiring soon"
+ * notices. Used by the in-process scheduler and by /api/maintenance/run.
+ */
+export async function runMaintenance(db: Db): Promise<{ expired: number; expiring: number; sessionsPruned?: number }> {
+  const expired = await sweepExpired(db);
+  const expiring = await notifyExpiringSoon(db);
+  // Postgres: drop expired sessions. (This also guarantees every run makes
+  // real database queries, so a Supabase Free project never counts as idle.)
+  const pruner = db as Db & { pruneExpiredSessions?: () => Promise<number> };
+  if (typeof pruner.pruneExpiredSessions === 'function') return { expired, expiring, sessionsPruned: await pruner.pruneExpiredSessions() };
+  return { expired, expiring };
+}
+
 /** Leads, with any lapsed assignment swept first, so reads always reflect server time. */
 export async function readLeads(db: Db): Promise<Row[]> {
   const now = db.now();
@@ -152,10 +167,72 @@ export function followUpState(l: Row, today: string): 'overdue' | 'today' | 'upc
   return 'upcoming';
 }
 
-export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; rates: Parameters<typeof commissionFor>[1] }) {
+export type FollowUp = ReturnType<typeof followUpState>;
+export interface NextAction {
+  /** The follow-up still in force ('' when superseded or none). */
+  followUpDate: string;
+  nextStep: string;
+  followUp: FollowUp;
+  /** The next upcoming (not cancelled) booking for the lead, if any. */
+  booking: { id: string; date: string; start: string } | null;
+  /** What the lead needs next, for lists: "Call booked · Tue 24 Nov, 4:30 PM IST", "Overdue · 21 Nov", … */
+  label: string;
+}
+
+/**
+ * The lead's next step, derived at read time from the stored follow-up, the
+ * call log and the bookings — so older rows are corrected without editing the
+ * sheet. All dates are IST.
+ *
+ * - An upcoming booking replaces any follow-up ("Call booked · …").
+ * - A booking made after the latest call supersedes the follow-up and next
+ *   step; cancelling it does not bring them back ("No next step").
+ * - A call logged on a day after the follow-up date means it was handled
+ *   (older rows re-saved the old date with the new call).
+ * - So "Overdue" needs: date before today, no call since, no upcoming booking.
+ */
+export function nextAction(l: Row, leadCalls: Row[], leadBookings: Row[], now: Date): NextAction {
+  const today = istDate(now);
+  const closed = l.status === 'Won' || l.status === 'Lost';
+  const lastCallAt = leadCalls.reduce((m, c) => (c.at > m ? c.at : m), '');
+  const lastBookingAt = leadBookings.reduce((m, b) => (b.createdAt > m ? b.createdAt : m), '');
+  const upcoming = leadBookings
+    .filter((b) => b.status !== 'cancelled' && fromIst(b.date, b.end || b.start).getTime() > now.getTime())
+    .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start))[0];
+  const supersededByBooking = Boolean(lastBookingAt) && (!lastCallAt || lastBookingAt > lastCallAt);
+  const handledByCall = Boolean(l.followUpDate) && Boolean(lastCallAt) && istDate(new Date(lastCallAt)) > l.followUpDate;
+  const followUpDate = closed || upcoming || supersededByBooking || handledByCall ? '' : l.followUpDate;
+  const nextStep = supersededByBooking ? '' : l.nextStep;
+  const followUp = followUpState({ ...l, followUpDate }, today);
+  const booking = !closed && upcoming ? { id: upcoming.id, date: upcoming.date, start: upcoming.start } : null;
+  const day = (d: string) => istWhen(d, '00:00').split(',')[0];
+  const label = closed
+    ? ''
+    : booking
+      ? `Call booked · ${istWhen(booking.date, booking.start).replace(' IST', '')}`
+      : followUp === 'overdue'
+        ? `Overdue · ${day(followUpDate).replace(/^\w+ /, '')}`
+        : followUp === 'today'
+          ? 'Follow up today'
+          : followUp === 'upcoming'
+            ? `Follow up ${day(followUpDate)}`
+            : nextStep || 'No next step';
+  return { followUpDate, nextStep, followUp, booking, label };
+}
+
+/** Calls and bookings grouped by lead id, for nextAction over many leads. */
+export function byLead(rows: Row[]): Map<string, Row[]> {
+  const m = new Map<string, Row[]>();
+  for (const r of rows) m.set(r.leadId, [...(m.get(r.leadId) ?? []), r]);
+  return m;
+}
+
+export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; bookings: Row[]; expirations?: Row[]; rates: Parameters<typeof commissionFor>[1] }) {
   const assignee = effectiveAssignee(l, ctx.now);
   const running = timerRunning(l) && Boolean(assignee);
   const calls = ctx.calls.filter((c) => c.leadId === l.id);
+  const next = nextAction(l, calls, ctx.bookings.filter((b) => b.leadId === l.id), ctx.now);
+  const lastCall = [...calls].sort((a, b) => b.at.localeCompare(a.at))[0];
   return {
     id: l.id,
     label: leadLabel(l),
@@ -191,9 +268,14 @@ export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; r
     rating: l.rating,
     decisionMaker: l.decisionMaker,
     need: l.need,
-    nextStep: l.nextStep,
-    followUpDate: l.followUpDate,
-    followUp: followUpState(l, istDate(ctx.now)),
+    nextStep: next.nextStep,
+    followUpDate: next.followUpDate,
+    followUp: next.followUp,
+    nextAction: next.label,
+    booking: next.booking,
+    lastCallOutcome: lastCall?.outcome ?? '',
+    /** Unassigned after an assignment ran out (Expired / back in Unclaimed). */
+    expired: !assignee && (ctx.expirations ?? []).some((e) => e.leadId === l.id),
     discoveryCallDate: l.discoveryCallDate,
     callHappened: bool(l.callHappened),
     status: l.status || 'New',
@@ -218,11 +300,13 @@ export const commissionInput = (l: Row) => ({
 });
 
 export async function viewContext(db: Db) {
-  const [users, calls, settings] = await Promise.all([db.all('Users'), db.all('CallLog'), getSettings(db)]);
+  const [users, calls, bookings, expirations, settings] = await Promise.all([db.all('Users'), db.all('CallLog'), db.all('Bookings'), db.all('Expirations'), getSettings(db)]);
   return {
     now: db.now(),
     users,
     calls,
+    bookings,
+    expirations,
     rates: {
       qualifiedFee: settings.commissionQualifiedFee,
       oneTimePct: settings.commissionOneTimePct,
@@ -528,9 +612,12 @@ export async function logCall(db: Db, actor: SessionUser, leadId: string, input:
     const patch: Record<string, string> = { contacted: 'TRUE', callOutcome: input.outcome };
     if (!lead.firstCallDate) patch.firstCallDate = istDate(now);
     if (!lead.status || lead.status === 'New') patch.status = 'Contacted';
-    for (const k of ['rating', 'decisionMaker', 'need', 'nextStep', 'followUpDate', 'discoveryCallDate'] as const) {
+    for (const k of ['rating', 'decisionMaker', 'need', 'discoveryCallDate'] as const) {
       if (input[k] !== undefined) patch[k] = input[k]!;
     }
+    // A newer call always replaces the follow-up: what this call chose, or none.
+    patch.nextStep = input.nextStep ?? '';
+    patch.followUpDate = input.followUpDate ?? '';
     const qualifies = settings.contactedRule === 'any_attempt' || isReachedOutcome(input.outcome);
     if (timerRunning(lead) && qualifies) patch.timerStoppedAt = now.toISOString();
 

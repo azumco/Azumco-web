@@ -42,6 +42,27 @@ export function Button({ variant = 'primary', busy, size = 'md', children, class
   );
 }
 
+// ─── Layout ─────────────────────────────────────────────────────────────────
+
+/**
+ * Two-panel page layouts. Every track is minmax(0, …) so wide content (a chip
+ * row, a day strip) can never push a column past the main area. Below 1100px
+ * the panels stack in one column.
+ */
+export const SPLIT_LIST = 'grid grid-cols-[minmax(0,1fr)] gap-6 min-[1100px]:grid-cols-[400px_minmax(0,1fr)] min-[1100px]:items-start';
+export const SPLIT_SUMMARY = 'grid grid-cols-[minmax(0,1fr)] gap-6 min-[1100px]:grid-cols-[minmax(0,1fr)_360px] min-[1100px]:items-start';
+export const WIDE_QUERY = '(min-width: 1100px)';
+
+/** A numbered step heading: ① How did the call go? */
+export function StepLabel({ step, children }: { step?: number; children: ReactNode }) {
+  return (
+    <span className="flex items-center gap-2.5 text-sm font-medium text-fg">
+      {step !== undefined && <span aria-hidden="true" className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[11px] font-medium tabular-nums text-brand">{step}</span>}
+      {children}
+    </span>
+  );
+}
+
 // ─── Choice chips & segmented control ───────────────────────────────────────
 
 export function ChoiceChip({ on, children, onClick, disabled, className = '' }: { on?: boolean; children: ReactNode; onClick?: () => void; disabled?: boolean; className?: string }) {
@@ -68,10 +89,10 @@ const optValue = <T extends string>(o: Opt<T>) => (typeof o === 'string' ? o : o
 const optLabel = <T extends string>(o: Opt<T>) => (typeof o === 'string' ? o : o.label);
 
 /** Single choice (click again to clear unless `required`). */
-export function ChipGroup<T extends string>({ label, options, value, onChange, required }: { label?: string; options: readonly Opt<T>[]; value: T | ''; onChange: (v: T | '') => void; required?: boolean }) {
+export function ChipGroup<T extends string>({ label, options, value, onChange, required, step }: { label?: string; options: readonly Opt<T>[]; value: T | ''; onChange: (v: T | '') => void; required?: boolean; step?: number }) {
   return (
     <fieldset>
-      {label && <legend className="mb-2 text-sm font-medium text-fg">{label}</legend>}
+      {label && <legend className={step !== undefined ? 'mb-3' : 'mb-2'}><StepLabel step={step}>{label}</StepLabel></legend>}
       <div className="flex flex-wrap gap-2">
         {options.map((o) => {
           const v = optValue(o);
@@ -87,10 +108,10 @@ export function ChipGroup<T extends string>({ label, options, value, onChange, r
 }
 
 /** Multiple choice. */
-export function MultiChips<T extends string>({ label, options, value, onChange }: { label?: string; options: readonly Opt<T>[]; value: T[]; onChange: (v: T[]) => void }) {
+export function MultiChips<T extends string>({ label, options, value, onChange, step }: { label?: string; options: readonly Opt<T>[]; value: T[]; onChange: (v: T[]) => void; step?: number }) {
   return (
     <fieldset>
-      {label && <legend className="mb-2 text-sm font-medium text-fg">{label}</legend>}
+      {label && <legend className={step !== undefined ? 'mb-3' : 'mb-2'}><StepLabel step={step}>{label}</StepLabel></legend>}
       <div className="flex flex-wrap gap-2">
         {options.map((o) => {
           const v = optValue(o);
@@ -106,10 +127,10 @@ export function MultiChips<T extends string>({ label, options, value, onChange }
   );
 }
 
-export function Segmented<T extends string>({ options, value, onChange, label, className = '' }: { options: readonly Opt<T>[]; value: T; onChange: (v: T) => void; label?: string; className?: string }) {
+export function Segmented<T extends string>({ options, value, onChange, label, className = '', step }: { options: readonly Opt<T>[]; value: T; onChange: (v: T) => void; label?: string; className?: string; step?: number }) {
   return (
     <div className={className}>
-      {label && <p className="mb-2 text-sm font-medium text-fg">{label}</p>}
+      {label && <p className={step !== undefined ? 'mb-3' : 'mb-2'}><StepLabel step={step}>{label}</StepLabel></p>}
       <div role="radiogroup" aria-label={label} className="flex rounded-full border border-line bg-bg-2 p-1">
         {options.map((o) => {
           const v = optValue(o);
@@ -133,7 +154,7 @@ export function Segmented<T extends string>({ options, value, onChange, label, c
 }
 
 /** Quick dates: Today / Tomorrow / In 3 days / Pick date. */
-export function QuickDate({ label, value, onChange }: { label?: string; value: string; onChange: (v: string) => void }) {
+export function QuickDate({ label, value, onChange, step }: { label?: string; value: string; onChange: (v: string) => void; step?: number }) {
   const today = istDate();
   const quick = [
     { label: 'Today', value: today },
@@ -144,7 +165,7 @@ export function QuickDate({ label, value, onChange }: { label?: string; value: s
   const pickRef = useRef<HTMLInputElement>(null);
   return (
     <fieldset>
-      {label && <legend className="mb-2 text-sm font-medium text-fg">{label}</legend>}
+      {label && <legend className={step !== undefined ? 'mb-3' : 'mb-2'}><StepLabel step={step}>{label}</StepLabel></legend>}
       <div className="flex flex-wrap gap-2">
         {quick.map((q) => (
           <ChoiceChip key={q.label} on={value === q.value} onClick={() => onChange(value === q.value ? '' : q.value)}>
