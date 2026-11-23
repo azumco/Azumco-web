@@ -21,7 +21,7 @@
         appears only if loading takes longer than ~400 ms (.az-on).
       */
       #az-loader {
-        position: fixed; inset: 0; z-index: 2147483000; display: flex;
+        position: fixed; inset: 0; z-index: 2147483000; display: flex; overflow: hidden;
         align-items: center; justify-content: center;
         background: #0a0a0a; /* --bg */
       }
@@ -32,7 +32,9 @@
       html.az-lock { overflow: hidden; scrollbar-gutter: stable; }
       html.az-lock body { overflow: hidden; }
       .azl-src { display: none; }
-      .azl-dots { width: clamp(150px, 26vmin, 230px); height: clamp(150px, 26vmin, 230px); }
+      /* The logo itself is clamp(150px, 26vmin, 230px); the drawing area is 2.6x that, so the
+         sphere of dots it gathers from is never cut off at the edges (no visible square). */
+      .azl-dots { --az-logo: clamp(150px, 26vmin, 230px); width: calc(var(--az-logo) * 2.6); height: calc(var(--az-logo) * 2.6); flex: none; }
       /* The message sits under the logo without moving it off centre. */
       .azl-msg { position: absolute; left: 0; right: 0; top: calc(50% + clamp(150px, 26vmin, 230px) * 0.5 + 12px); margin: 0 auto; min-height: 1.5em; max-width: 34ch; padding: 0 24px; text-align: center; font: 400 13px/1.5 Satoshi, system-ui, sans-serif; color: #a19e98; /* --fg-2 */ }
       @keyframes az-in { from { opacity: 0; } to { opacity: 1; } }
@@ -306,14 +308,14 @@
                 sx: R * Math.sin(v) * Math.cos(u), sy: R * Math.sin(v) * Math.sin(u), sz: R * Math.cos(v), o: orange });
             }
             if (pts.length > MAX_DOTS) { var keep = MAX_DOTS / pts.length; pts = pts.filter(function () { return Math.random() < keep; }); }
-            var dpr = Math.min(window.devicePixelRatio || 1, 2), size = canvas.getBoundingClientRect().width || 200;
+            var dpr = Math.min(window.devicePixelRatio || 1, 2), size = canvas.getBoundingClientRect().width || 520, logo = size / 2.6;
             canvas.width = size * dpr; canvas.height = size * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
             var t0 = performance.now();
             (function frame(now) {
               if (!alive) return;
               var t = now - t0, q = reduced ? 1 : Math.min(1, t / ASSEMBLE), e = 1 - Math.pow(1 - q, 4);
               var ry = reduced ? -0.35 : (t / TURN) * 6.2832 + (1 - e) * 2.5, cy = Math.cos(ry), sy = Math.sin(ry);
-              var cx = Math.cos(0.08), sx = Math.sin(0.08), scale = size * 0.42, cam = 3;
+              var cx = Math.cos(0.08), sx = Math.sin(0.08), scale = logo * 0.42, cam = 3;
               ctx.clearRect(0, 0, size, size);
               for (var n = 0; n < pts.length; n++) {
                 var p = pts[n], X = p.sx + (p.x - p.sx) * e, Y = p.sy + (p.y - p.sy) * e, Z = p.sz + (p.z - p.sz) * e;
