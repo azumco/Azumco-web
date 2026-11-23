@@ -10,6 +10,68 @@
     <meta name="geo.placename" content="Ujjain, Madhya Pradesh" />
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      Logo-reveal loader: critical CSS. The markup and controller are at the
+      top of <body>. Tune the timing in the config block below (seconds).
+    -->
+    <style>
+      #az-loader {
+        /* ── Timing config ─────────────────────────────── */
+        --az-guide-d: 0.15s; --az-guide-t: 0.35s;   /* hairline guides fade/draw in */
+        --az-frame-d: 0.40s; --az-frame-t: 0.60s;   /* outer framework */
+        --az-int-d: 0.62s;   --az-int-t: 0.62s;     /* internal connections */
+        --az-z-d: 1.20s;     --az-z-t: 0.40s;       /* the hidden Z, last */
+        --az-acc-d: 1.50s;   --az-acc-t: 0.40s;     /* accent edges */
+        --az-gfade-d: 1.25s; --az-gfade-t: 0.40s;   /* guides fade away */
+        --az-lfade-d: 1.55s; --az-lfade-t: 0.30s;   /* construction strokes hand over to the fills */
+        --az-stagger: 0.07s;                        /* overlap between strokes in a wave */
+        --az-ease: cubic-bezier(0.65, 0, 0.35, 1);
+        position: fixed; inset: 0; z-index: 2147483000; display: none;
+        align-items: center; justify-content: center;
+        background: #0a0a0a; /* --bg */
+      }
+      #az-loader.az-on { display: flex; }
+      #az-loader.az-out { opacity: 0; transition: opacity 0.3s ease; }
+      /* Scroll lock that keeps the scrollbar space, so the page width does not change on unlock. */
+      html.az-lock { overflow: hidden; scrollbar-gutter: stable; }
+      html.az-lock body { overflow: hidden; }
+      .azl { --az-w: clamp(88px, 14vmin, 132px); width: var(--az-w); height: auto; overflow: visible; }
+      /* The message sits under the logo without moving it off centre. */
+      .azl-msg { position: absolute; left: 0; right: 0; top: calc(50% + clamp(88px, 14vmin, 132px) * 0.5665 + 20px); margin: 0 auto; min-height: 1.5em; max-width: 34ch; padding: 0 24px; text-align: center; font: 400 13px/1.5 Satoshi, system-ui, sans-serif; color: #a19e98; /* --fg-2 */ }
+      .s-guide { --d: var(--az-guide-d); --t: var(--az-guide-t); }
+      .s-frame { --d: var(--az-frame-d); --t: var(--az-frame-t); }
+      .s-int { --d: var(--az-int-d); --t: var(--az-int-t); }
+      .s-z { --d: var(--az-z-d); --t: var(--az-z-t); }
+      .s-acc { --d: var(--az-acc-d); --t: var(--az-acc-t); }
+      /* Flat caps and a gap longer than the path: nothing shows before a stroke starts. */
+      .azl-w, .azl-l, .azl-g { fill: none; stroke-linecap: butt; stroke-linejoin: round; stroke-dasharray: 1 2; stroke-dashoffset: 1; }
+      .azl-w { stroke: #fff; }
+      .azl-g { stroke: #5b5b5d; stroke-width: 1px; }
+      .azl-guides { opacity: 0.25; }
+      .azl-l { --w0: 0.4px; --w1: 1.6px; }
+      .azl-all { opacity: 0; fill: #fff; }
+      .az-on .azl-w { animation: az-wipe var(--t) var(--az-ease) calc(var(--d) + var(--i, 0) * var(--az-stagger)) both; }
+      .az-on .azl-g { animation: az-wipe var(--t) var(--az-ease) var(--d) both; }
+      .az-on .azl-l { animation: az-draw var(--t) var(--az-ease) calc(var(--d) + var(--i, 0) * var(--az-stagger)) both; }
+      .az-on .azl-all { animation: az-in 0.12s linear calc(var(--d) + var(--t)) both; }
+      .az-on .azl-guides { animation: az-fade var(--az-gfade-t) ease calc(var(--az-gfade-d)) both; }
+      .az-on .azl-lines { animation: az-fade var(--az-lfade-t) ease var(--az-lfade-d) both; }
+      @keyframes az-wipe { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+      @keyframes az-draw { from { stroke-dashoffset: 1; stroke-width: var(--w0); } to { stroke-dashoffset: 0; stroke-width: var(--w1); } }
+      @keyframes az-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes az-fade { from { opacity: var(--o0, 1); } to { opacity: 0; } }
+      .azl-guides { --o0: 0.25; }
+      /* Finished: the plain logo, exactly (no masks, no construction layers). */
+      .az-done .azl-fill { mask: none; }
+      .az-done .azl-guides, .az-done .azl-lines { display: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .az-on .azl-guides, .az-on .azl-lines { display: none; }
+        .az-on .azl-fill { mask: none; }
+        .az-on .azl-w, .az-on .azl-all, .az-on .azl-g, .az-on .azl-l { animation: none; }
+        .az-on .azl { animation: az-in 0.15s ease-out both; }
+      }
+    </style>
+    <noscript><style>#az-loader { display: none !important; }</style></noscript>
     <link rel="canonical" href="https://azumco.com/" />
 
     <meta property="og:type" content="website" />
@@ -181,6 +243,128 @@
     <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet" />
   </head>
   <body>
+    <!--
+      Logo-reveal loader. Paints before the JS bundle; shown only if the page
+      is not ready within ~400 ms; removed from the DOM after its fade-out.
+      The logo paths are the brand SVG (src/assets/brand/azumco-logo.svg)
+      unchanged; masks reveal the fills along their centrelines, and the
+      finished frame is the plain logo.
+    -->
+    <div id="az-loader" role="status" aria-label="Loading">
+      <svg class="azl" viewBox="0 0 1114 1262" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="azl-g0" x1="296" y1="73" x2="946" y2="1113" gradientUnits="userSpaceOnUse"><stop stop-color="#FD7400"/><stop offset="1" stop-color="#FB6200"/></linearGradient>
+          <linearGradient id="azl-g1" x1="276" y1="573" x2="416" y2="633" gradientUnits="userSpaceOnUse"><stop stop-color="#F04000" stop-opacity="0.27"/><stop offset="1" stop-color="#F04000" stop-opacity="0.46"/></linearGradient>
+          <linearGradient id="azl-g2" x1="329" y1="793" x2="553" y2="1241" gradientUnits="userSpaceOnUse"><stop stop-color="#525253"/><stop offset="0.55" stop-color="#3F3F40"/><stop offset="1" stop-color="#2D2D2E"/></linearGradient>
+          <linearGradient id="azl-g3" x1="646" y1="783" x2="706" y2="1113" gradientUnits="userSpaceOnUse"><stop stop-color="#3D3D3F"/><stop offset="1" stop-color="#292929"/></linearGradient>
+          <!-- Reveal masks: white strokes along each part's centreline; a full rect at the end of the stage. -->
+          <mask id="azl-m1" maskUnits="userSpaceOnUse" x="0" y="0" width="1114" height="1262">
+            <path class="azl-w s-frame" pathLength="1" stroke-width="270" d="M120 1010L560 60"/>
+            <path class="azl-w s-frame" pathLength="1" stroke-width="270" d="M1000 1010L561 60"/>
+            <path class="azl-w s-z" pathLength="1" stroke-width="200" d="M713 556L514 557L430 684L796 687"/>
+            <rect class="azl-all s-z" width="1114" height="1262"/>
+          </mask>
+          <mask id="azl-m2" maskUnits="userSpaceOnUse" x="0" y="0" width="1114" height="1262">
+            <path class="azl-w s-acc" pathLength="1" stroke-width="70" d="M221 853C214 918 246 998 321 1143"/>
+            <path class="azl-w s-acc" pathLength="1" stroke-width="70" d="M895 858C908 908 871 998 791 1143"/>
+            <path class="azl-w s-acc" pathLength="1" stroke-width="50" d="M430 684L796 675"/>
+            <path class="azl-w s-acc" pathLength="1" stroke-width="50" d="M558 285L518 357"/>
+            <rect class="azl-all s-acc" width="1114" height="1262"/>
+          </mask>
+          <mask id="azl-m3" maskUnits="userSpaceOnUse" x="0" y="0" width="1114" height="1262">
+            <path class="azl-w s-int" pathLength="1" stroke-width="540" d="M558 712V1250"/>
+            <rect class="azl-all s-int" width="1114" height="1262"/>
+          </mask>
+        </defs>
+        <!-- 0. Construction guides (hairline, neutral) -->
+        <g class="azl-guides">
+          <path class="azl-g s-guide" pathLength="1" vector-effect="non-scaling-stroke" d="M561 21L1093 890L791 1143L895 858L796 687L430 684L514 557L713 556L558 297L221 853L321 1143L21 886Z"/>
+          <path class="azl-g s-guide" pathLength="1" vector-effect="non-scaling-stroke" d="M329 723L328 1029L553 1241L789 1028L788 722L563 862L553 862Z"/>
+        </g>
+        <!-- The logo, unchanged: (1) orange mark + shading -->
+        <g class="azl-fill" mask="url(#azl-m1)">
+          <path d="M561 21L1093 890L791 1143L895 858L796 687L430 684L514 557L713 556L558 297L221 853L321 1143L21 886L561 21Z" fill="url(#azl-g0)"/>
+          <path d="M557 281L21 886L321 1143L221 853L558 297L557 281Z" fill="url(#azl-g1)"/>
+          <path d="M557 281L764 559L1093 890L791 1143L895 858L796 687L713 556L558 297L557 281Z" fill="#F04000" fill-opacity="0.38"/>
+        </g>
+        <!-- (4) accent edges -->
+        <g class="azl-fill" mask="url(#azl-m2)">
+          <path d="M221 853C214 918 246 998 321 1143L221 853Z" fill="#F64600"/>
+          <path d="M895 858C908 908 871 998 791 1143L895 858Z" fill="#F44800"/>
+          <path d="M430 684L788 662L796 687L430 684Z" fill="#F34100"/>
+          <path d="M558 285L528 321L517 353L520 359L556 297L558 285Z" fill="#F44600"/>
+        </g>
+        <!-- the cube -->
+        <g class="azl-fill" mask="url(#azl-m3)">
+          <path d="M329 723L328 1029L553 1241V862L329 723Z" fill="url(#azl-g2)"/>
+          <path d="M329 723L553 862V906L329 770V723Z" fill="#1E1E1F"/>
+          <path d="M329 770L553 906" stroke-width="2.5" stroke="#5B5B5D"/>
+          <path d="M328 1029L553 1241V1231L328 1019V1029Z" fill="#101011"/>
+          <path d="M788 722L563 862V1241L789 1028L788 722Z" fill="url(#azl-g3)"/>
+          <path d="M789 885V1028L563 1241V1106L789 885Z" fill="#191919"/>
+          <path d="M788 722L563 862L572 904L789 770L788 722Z" fill="#1E1E1F"/>
+          <path d="M789 770L572 904" stroke-width="2.5" stroke="#4C4C4E"/>
+          <path d="M563 862L577 870V1227L563 1241V862Z" fill="#141415"/>
+        </g>
+        <!-- Construction strokes along the guides: (1) framework, (2) internal connections, (3) the Z -->
+        <g class="azl-lines">
+          <path class="azl-l s-frame" style="--i:0" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M21 886L561 21"/>
+          <path class="azl-l s-frame" style="--i:0" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M1093 890L561 21"/>
+          <path class="azl-l s-frame" style="--i:1" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M21 886L321 1143"/>
+          <path class="azl-l s-frame" style="--i:1" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M1093 890L791 1143"/>
+          <path class="azl-l s-frame" style="--i:2" stroke="#5B5B5D" pathLength="1" vector-effect="non-scaling-stroke" d="M553 1241L328 1029L329 723"/>
+          <path class="azl-l s-frame" style="--i:2" stroke="#5B5B5D" pathLength="1" vector-effect="non-scaling-stroke" d="M553 1241L789 1028L788 722"/>
+          <path class="azl-l s-int" style="--i:0" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M321 1143L221 853L558 297"/>
+          <path class="azl-l s-int" style="--i:0" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M713 556L558 297"/>
+          <path class="azl-l s-int" style="--i:1" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M791 1143L895 858L796 687"/>
+          <path class="azl-l s-int" style="--i:2" stroke="#5B5B5D" pathLength="1" vector-effect="non-scaling-stroke" d="M329 723L553 862L563 862L788 722"/>
+          <path class="azl-l s-int" style="--i:3" stroke="#5B5B5D" pathLength="1" vector-effect="non-scaling-stroke" d="M553 862V1241"/>
+          <path class="azl-l s-int" style="--i:3" stroke="#5B5B5D" pathLength="1" vector-effect="non-scaling-stroke" d="M329 770L553 906"/>
+          <path class="azl-l s-int" style="--i:3" stroke="#5B5B5D" pathLength="1" vector-effect="non-scaling-stroke" d="M789 770L572 904"/>
+          <path class="azl-l s-z" stroke="#FD7400" pathLength="1" vector-effect="non-scaling-stroke" d="M713 556L514 557L430 684L796 687"/>
+        </g>
+      </svg>
+      <p class="azl-msg" aria-live="polite"></p>
+    </div>
+    <script>
+      // Loader controller (no network, no dependencies). The app calls
+      // window.__azLoader.ready() when it has rendered; the team portal can
+      // also set a message (e.g. "server is waking up").
+      (function () {
+        var ONCE_PER_SESSION = true; // public site: show at most once per browser session
+        var DELAY = 400, REVEAL = 1900, EXIT = 300, KEY = 'az-loader-seen';
+        var el = document.getElementById('az-loader');
+        var root = document.documentElement;
+        var team = /^\/team(\/|$)/.test(location.pathname);
+        var dev = '%DEV%' === 'true';
+        var replay = dev && /[?&]loader(=|&|$)/.test(location.search);
+        var reduced = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+        var ready = false, shown = false, finished = false, leaving = false, timer;
+        var seen = false;
+        if (!team && ONCE_PER_SESSION && !replay) { try { seen = sessionStorage.getItem(KEY) === '1'; } catch (e) {} }
+        function remove() { if (el && el.parentNode) el.parentNode.removeChild(el); el = null; root.classList.remove('az-lock'); }
+        function exit() { if (!el || leaving) return; leaving = true; el.classList.add('az-out'); setTimeout(remove, EXIT); }
+        function show() {
+          if (!el || shown || ready) return;
+          shown = true;
+          el.classList.add('az-on');
+          root.classList.add('az-lock');
+          if (!team) { try { sessionStorage.setItem(KEY, '1'); } catch (e) {} }
+          setTimeout(function () { finished = true; if (el) el.classList.add('az-done'); if (ready) exit(); }, reduced ? 150 : REVEAL);
+        }
+        window.__azLoader = {
+          ready: function () {
+            if (ready) return;
+            ready = true;
+            if (!shown) { clearTimeout(timer); remove(); } else if (finished) exit();
+          },
+          message: function (text) { var m = el && el.querySelector('.azl-msg'); if (m) m.textContent = text || ''; },
+          replay: dev ? function () { try { sessionStorage.removeItem(KEY); } catch (e) {} location.search = '?loader'; } : undefined
+        };
+        if (!el) return;
+        if (seen) remove(); else timer = setTimeout(show, replay ? 0 : DELAY);
+      })();
+    </script>
     <noscript>Azumco — websites, apps and digital marketing. Contact: contact.azumco@gmail.com</noscript>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>

@@ -8,6 +8,7 @@
 @source not "../shared";
 @source not "../*.md";
 @source not "../docs";
+@source not "../index.html";
 
 /*
   Design tokens. Dark is the default theme.
