@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Bell, CalendarDays, Clock, Home as HomeIcon, IndianRupee, List, LogOut, Menu, MoreHorizontal, Search, Settings as SettingsIcon, Target,
   Users as UsersIcon, Wallet, X,
+  History as HistoryIcon,
 } from 'lucide-react';
 import { api, setCsrf } from './api';
 import { navigate, usePath } from './router';
@@ -31,6 +32,7 @@ import Goals from './pages/Goals';
 import MyGoals from './pages/MyGoals';
 import Settings from './pages/Settings';
 import Queue from './pages/Queue';
+import History from './pages/History';
 import FollowUps from './pages/FollowUps';
 import Earnings from './pages/Earnings';
 import Notifications from './pages/Notifications';
@@ -87,13 +89,15 @@ const FOUNDER_TABS: NavItem[] = [
   { path: '/team/calendar', label: 'Calendar', icon: CalendarDays },
   { path: '/team/more', label: 'More', icon: MoreHorizontal },
 ];
-const MEMBER_NAV: NavItem[] = [
+// Phone: five tabs (History lives inside Queue). Sidebar: those plus "My leads".
+const MEMBER_TABS: NavItem[] = [
   { path: '/team', label: 'Queue', icon: List },
   { path: '/team/followups', label: 'Follow-ups', icon: Clock },
   { path: '/team/book', label: 'Book', icon: CalendarDays },
   { path: '/team/goals', label: 'Goals', icon: Target },
   { path: '/team/earnings', label: 'Earnings', icon: IndianRupee },
 ];
+const MEMBER_NAV: NavItem[] = [...MEMBER_TABS.slice(0, 2), { path: '/team/history', label: 'My leads', icon: HistoryIcon }, ...MEMBER_TABS.slice(2)];
 
 function founderPage(path: string, user: TeamUser, unread: number, onSignOut: () => void): ReactNode {
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
@@ -122,6 +126,7 @@ function memberPage(path: string, user: TeamUser): ReactNode {
   switch (path) {
     case '/team': return <Queue user={user} />;
     case '/team/followups': return <FollowUps user={user} />;
+    case '/team/history': return <History user={user} />;
     case '/team/book': return <Book user={user} />;
     case '/team/earnings': return <Earnings />;
     case '/team/goals': return <MyGoals user={user} />;
@@ -206,6 +211,8 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
     : { wrap: 'md:flex', aside: 'md:flex', top: 'md:hidden', menuBtn: 'inline-flex', menu: 'block md:hidden' };
   const active = (p: string) =>
     p === '/team' ? path === '/team' : path === p || path.startsWith(`${p}/`) || (p === '/team/money' && ['/team/milestone', '/team/expenses'].includes(path)) || (p === '/team/more' && ['/team/money', '/team/goals', '/team/settings', '/team/notifications'].includes(path));
+  // On phones, History is a segment inside Queue, so the Queue tab stays lit.
+  const tabActive = (p: string) => active(p) || (p === '/team' && !founder && path === '/team/history');
 
   const navList = (
     <nav aria-label="Team" className="flex flex-col gap-1">
@@ -286,7 +293,7 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
       <nav aria-label="Tabs" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
         <div className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
           {tabs.map((t) => (
-            <a key={t.path} {...link(t.path)} aria-current={active(t.path) ? 'page' : undefined} className={cx('flex min-h-16 flex-col items-center justify-center gap-1 text-[11px]', active(t.path) ? 'text-brand' : 'text-fg-2')}>
+            <a key={t.path} {...link(t.path)} aria-current={tabActive(t.path) ? 'page' : undefined} className={cx('flex min-h-16 flex-col items-center justify-center gap-1 text-[11px]', tabActive(t.path) ? 'text-brand' : 'text-fg-2')}>
               <t.icon className="h-5 w-5" />
               {t.label}
             </a>
@@ -312,7 +319,7 @@ function MemberShell({ user, path, onSignOut }: { user: TeamUser; path: string; 
   const counts = useMemberCounts(path);
   const nav = MEMBER_NAV.map((n) => (n.path === '/team' ? { ...n, count: counts.queue } : n.path === '/team/followups' ? { ...n, count: counts.followUps } : n));
   return (
-    <Shell user={user} path={path} onSignOut={onSignOut} nav={nav} tabs={MEMBER_NAV} unread={unread}>
+    <Shell user={user} path={path} onSignOut={onSignOut} nav={nav} tabs={MEMBER_TABS} unread={unread}>
       {memberPage(path, user) ?? <NotFound />}
     </Shell>
   );

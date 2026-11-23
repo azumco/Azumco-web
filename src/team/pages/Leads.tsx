@@ -12,15 +12,21 @@ import { Async, Avatar, BoxInput, Button, ChipGroup, ChoiceChip, Countdown, Empt
 import AssignDialog from '../components/AssignDialog';
 import type { Lead, LeadsResponse, TeamMember } from '../types';
 
-type View = 'all' | 'new' | 'contacted' | 'won' | 'unclaimed' | 'due';
+type View = 'all' | 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost' | 'expired' | 'unclaimed' | 'due';
 const VIEWS: { key: View; label: string; test: (l: Lead) => boolean }[] = [
   { key: 'all', label: 'All', test: () => true },
   { key: 'new', label: 'New', test: (l) => l.status === 'New' },
   { key: 'contacted', label: 'Contacted', test: (l) => l.status === 'Contacted' },
+  { key: 'qualified', label: 'Qualified', test: (l) => l.status === 'Qualified' },
+  { key: 'proposal', label: 'Proposal', test: (l) => l.status === 'Proposal Sent' || l.status === 'Negotiating' },
   { key: 'won', label: 'Won', test: (l) => l.status === 'Won' },
+  { key: 'lost', label: 'Lost', test: (l) => l.status === 'Lost' },
+  { key: 'expired', label: 'Expired', test: (l) => l.expired },
   { key: 'unclaimed', label: 'Unclaimed', test: (l) => !l.assignedTo },
   { key: 'due', label: 'Due today', test: (l) => l.followUp === 'today' || l.followUp === 'overdue' },
 ];
+const ANY = '__any';
+const UNASSIGNED = '__none';
 
 const MANUAL_SOURCES = LEAD_SOURCES.filter((s) => s !== 'Google Places');
 
@@ -41,11 +47,12 @@ function Rating({ value }: { value: string }) {
 
 function FollowUpCell({ l, now }: { l: Lead; now: number }) {
   if (l.timerRunning) return <Countdown expiresAt={l.expiresAt} now={now} />;
+  if (l.booking) return <span className="text-sm text-info">{l.nextAction}</span>;
   if (l.followUp === 'today') return <span className="text-sm font-medium text-brand">Today</span>;
   if (l.followUp === 'overdue') return <span className="text-sm font-medium text-bad">Overdue · {formatDate(l.followUpDate).slice(0, 6)}</span>;
   if (l.followUp === 'upcoming') return <span className="text-sm text-fg-2">{formatDate(l.followUpDate).slice(0, 6)}</span>;
   if (l.assignedTo && !l.contacted) return <Countdown expiresAt={null} now={now} />;
-  return <span className="text-fg-3">—</span>;
+  return <span className="text-sm text-fg-3">{l.status === 'Won' || l.status === 'Lost' ? '—' : l.nextAction || '—'}</span>;
 }
 
 function sourceLabel(s: string) {
@@ -110,6 +117,11 @@ export default function Leads() {
   const now = useServerNow(state.data?.serverNow);
   const [view, setView] = useState<View>((VIEWS.find((v) => v.key === params.get('view'))?.key as View) ?? 'all');
   const [q, setQ] = useState('');
+  const [source, setSource] = useState(ANY);
+  const [person, setPerson] = useState(ANY);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const filtered = source !== ANY || person !== ANY || Boolean(from) || Boolean(to);
   const [adding, setAdding] = useState(params.get('add') === '1');
   const [assigning, setAssigning] = useState<Lead[] | null>(null);
 
@@ -118,9 +130,12 @@ export default function Leads() {
     const t = q.trim().toLowerCase();
     return leads
       .filter(VIEWS.find((v) => v.key === view)!.test)
-      .filter((l) => !t || [l.label, l.city, l.category, l.contactPerson, l.phone].some((x) => x?.toLowerCase().includes(t)))
+      .filter((l) => !t || [l.label, l.businessName, l.city, l.category, l.contactPerson, l.phone].some((x) => x?.toLowerCase().includes(t)))
+      .filter((l) => source === ANY || (l.source || '') === source)
+      .filter((l) => person === ANY || (person === UNASSIGNED ? !l.assignedTo : l.assignedTo === person))
+      .filter((l) => (!from || l.dateAdded >= from) && (!to || l.dateAdded <= to))
       .sort((a, b) => (a.expiresAt ?? '9').localeCompare(b.expiresAt ?? '9') || b.dateAdded.localeCompare(a.dateAdded));
-  }, [leads, view, q]);
+  }, [leads, view, q, source, person, from, to]);
 
   const open = (id: string) => navigate(`/team/leads/${id}`);
 
@@ -131,7 +146,7 @@ export default function Leads() {
           Leads <span className="font-serif font-normal italic tracking-normal text-brand">{leads.length || ''}</span>
         </h1>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <BoxInput aria-label="Search leads" placeholder="Search business, phone or city" value={q} onChange={(e) => setQ(e.target.value)} icon={<Search className="h-4 w-4 text-fg-3" />} className="sm:w-80" />
+          <BoxInput aria-label="Search leads" placeholder="Search business, contact, phone or city" value={q} onChange={(e) => setQ(e.target.value)} icon={<Search className="h-4 w-4 text-fg-3" />} className="sm:w-80" />
           <div className="flex gap-2">
             <a href="/api/leads/export.csv" className="inline-flex min-h-12 items-center gap-2 rounded-full border border-line-2 px-4 text-sm hover:border-fg/40">
               <Download className="h-4 w-4" /> CSV
@@ -140,6 +155,16 @@ export default function Leads() {
           </div>
         </div>
       </div>
+
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <SearchableSelect label="Source" value={source === ANY ? 'Any source' : source} onChange={(v) => setSource(!v || v === 'Any source' ? ANY : v)} options={['Any source', ...[...new Set(leads.map((l) => l.source).filter(Boolean))].sort()]} />
+        <SearchableSelect label="Assigned to" value={person === ANY ? 'Anyone' : person === UNASSIGNED ? 'Nobody (unclaimed)' : leads.find((l) => l.assignedTo === person)?.assigneeName ?? 'Anyone'} onChange={(v) => setPerson(!v || v === 'Anyone' ? ANY : v === 'Nobody (unclaimed)' ? UNASSIGNED : leads.find((l) => l.assigneeName === v)?.assignedTo ?? ANY)} options={['Anyone', 'Nobody (unclaimed)', ...[...new Set(leads.filter((l) => l.assignedTo).map((l) => l.assigneeName))].sort()]} />
+        <Field label="Added from" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+        <Field label="Added to" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+      </div>
+      {filtered && (
+        <button type="button" className="mb-4 text-sm font-medium text-brand" onClick={() => { setSource(ANY); setPerson(ANY); setFrom(''); setTo(''); }}>Clear filters</button>
+      )}
 
       <div className="mb-5 flex flex-wrap gap-2">
         {VIEWS.map((v) => (
@@ -169,7 +194,7 @@ export default function Leads() {
                       <th className="px-3 py-4 font-normal">Status</th>
                       <th className="px-3 py-4 font-normal">Rating</th>
                       <th className="px-3 py-4 font-normal">Assigned to</th>
-                      <th className="px-3 py-4 font-normal">Follow-up / timer</th>
+                      <th className="px-3 py-4 font-normal">Next step / timer</th>
                       <th className="px-5 py-4 font-normal">Source</th>
                     </tr>
                   </thead>

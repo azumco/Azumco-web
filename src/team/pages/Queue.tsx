@@ -156,7 +156,7 @@ export default function Queue({ user }: { user: TeamUser }) {
         );
 
         const segmented = (
-          <Segmented className="mb-3" options={[{ value: 'call', label: `To call · ${toCall.length}` }, { value: 'followups', label: `Follow-ups · ${followUps}` }]} value="call" onChange={(v) => v === 'followups' && navigate('/team/followups')} />
+          <Segmented className="mb-3" options={[{ value: 'call', label: `To call · ${toCall.length}` }, { value: 'followups', label: `Follow-ups · ${followUps}` }, { value: 'history', label: 'History' }]} value="call" onChange={(v) => (v === 'followups' ? navigate('/team/followups') : v === 'history' && navigate('/team/history'))} />
         );
 
         // Phones and tablets with nothing to call: the designed panel instead of the list.
@@ -186,7 +186,7 @@ export default function Queue({ user }: { user: TeamUser }) {
                       <LeadRow
                         key={l.id}
                         title={shortLabel(l)}
-                        sub={l.needsLiveLookup ? 'Google lead' : [l.city, l.source].filter(Boolean).join(' · ') || '—'}
+                        sub={l.booking ? l.nextAction : l.needsLiveLookup ? 'Google lead' : [l.city, l.source].filter(Boolean).join(' · ') || '—'}
                         right={<Countdown expiresAt={l.timerRunning ? l.expiresAt : null} now={now} />}
                         selected={sel.current === l.id}
                         onOpen={() => sel.open(l.id)}
