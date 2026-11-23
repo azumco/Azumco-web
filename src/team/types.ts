@@ -54,6 +54,12 @@ export interface Lead {
   decisionMaker: string;
   need: string;
   nextStep: string;
+  /** Derived on the server: "Call booked · Tue 24 Nov, 4:30 PM", "Overdue · 21 Nov", "Follow up today", … */
+  nextAction: string;
+  booking: { id: string; date: string; start: string } | null;
+  lastCallOutcome: string;
+  /** Unassigned after an assignment ran out. */
+  expired: boolean;
   followUpDate: string;
   followUp: 'overdue' | 'today' | 'upcoming' | 'none';
   discoveryCallDate: string;

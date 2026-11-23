@@ -232,7 +232,8 @@ export class BookingService {
         throw new HttpError(409, 'That slot was just taken. Pick another time.', 'SLOT_TAKEN');
       }
 
-      await this.db.updateUnqueued('Leads', input.leadId, { discoveryCallDate: slot.date }, actor.id);
+      // Booking a discovery call clears any pending follow-up and next step.
+      await this.db.updateUnqueued('Leads', input.leadId, { discoveryCallDate: slot.date, followUpDate: '', nextStep: '' }, actor.id);
       const first = (id: string) => (users.find((u) => u.id === id)?.name ?? '').split(' ')[0];
       const time = to12(slot.start);
       await notifyUnqueued(this.db, [

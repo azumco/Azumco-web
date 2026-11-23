@@ -178,8 +178,9 @@ function LogCall({ lead, msLeft, onLogged, wide, numbered }: { lead: Lead; msLef
   const [outcome, setOutcome] = useState('');
   const [rating, setRating] = useState<string>(lead.rating);
   const [needs, setNeeds] = useState<string[]>([]);
+  // A call replaces the follow-up with what THIS call chose, so both start empty.
   const [nextStep, setNextStep] = useState<string>('');
-  const [followUpDate, setFollowUpDate] = useState(lead.followUpDate);
+  const [followUpDate, setFollowUpDate] = useState('');
   const [note, setNote] = useState('');
   const [confirming, setConfirming] = useState(false);
   const [done, setDone] = useState('');
@@ -190,8 +191,8 @@ function LogCall({ lead, msLeft, onLogged, wide, numbered }: { lead: Lead; msLef
     setOutcome('');
     setRating(lead.rating);
     setNeeds(lead.need ? lead.need.split(',').map((s) => s.trim()).filter((s) => (NEEDS as readonly string[]).includes(s)) : []);
-    setNextStep((NEXT_STEPS as readonly string[]).includes(lead.nextStep) ? lead.nextStep : '');
-    setFollowUpDate(lead.followUpDate);
+    setNextStep('');
+    setFollowUpDate('');
     setNote('');
     setDone('');
     setError('');
@@ -349,7 +350,7 @@ export function LeadPanel({ id, user, embedded, fullWidth, onChanged }: { id: st
               )}
               <div className="min-w-0 flex-1">
                 <h1 className={cx('truncate font-medium tracking-[-0.02em]', embedded ? 'text-2xl' : 'text-xl sm:text-2xl')}>{shortLabel(lead)}</h1>
-                <p className="text-xs text-fg-3">{lead.timerRunning ? 'Disappears unless you log a call' : leadSubline(lead)}</p>
+                <p className="text-xs text-fg-3">{lead.timerRunning ? 'Disappears unless you log a call' : [leadSubline(lead), lead.nextAction].filter(Boolean).join(' · ')}</p>
               </div>
               {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
             </div>
