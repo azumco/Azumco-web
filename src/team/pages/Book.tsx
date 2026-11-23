@@ -3,7 +3,7 @@
 // follow the picker). The day strip always shows one week (7 days) with
 // prev/next arrows. Founder names and colours come from the user records.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarX, Check, ChevronLeft, ChevronRight, Store } from 'lucide-react';
 import { addDays, weekday } from '../../../shared/slots';
 import { formatDate, istDate } from '../../../shared/time';
@@ -87,19 +87,21 @@ export default function Book({ user }: { user: TeamUser }) {
     return (free.find((s) => founderOf(s.founderId)?.meetLink) ?? free[0] ?? time).founderId;
   })();
   const founderLink = normalizeMeetLink(founderOf(meetFounderId)?.meetLink) || '';
-  // Every Google Meet booking has its own "Meeting link": prefilled with the
-  // founder's saved link and editable, so the booker can paste a new one.
-  const [meetEdited, setMeetEdited] = useState(false);
-  useEffect(() => {
-    if (!meetEdited) setForm((f) => (f.meetOverride === founderLink ? f : { ...f, meetOverride: founderLink }));
-  }, [founderLink, meetEdited]);
-  const meetLink = normalizeMeetLink(form.meetOverride);
-  const meetBlocked = meet && !meetLink;
+  // The founder hosts the call, so their own Meet room is used automatically
+  // (they are the one who lets the client in). The booker only types a link
+  // when the founder has none saved, or chooses "Use a different link".
+  const [customLink, setCustomLink] = useState(false);
+  const typed = normalizeMeetLink(form.meetOverride);
+  const needsTyped = meet && Boolean(meetFounderId) && (customLink || !founderLink);
+  const meetBlocked = needsTyped && !typed;
+  const host = meetFounderId ? nameOf(meetFounderId) : '';
+  const anyFounderHasLink = founders.some((f) => normalizeMeetLink(f.meetLink));
 
   const book = async () => {
     if (!lead || !time) return setError('Choose a lead and a time.');
-    if (meetBlocked) return setError(meetLink === null ? MEET_LINK_ERROR : 'Paste a Google Meet link for this call.');
-    const link = meet ? meetLink || '' : form.mode === 'Zoho Cliq' ? form.link : '';
+    if (meetBlocked) return setError(typed === null ? MEET_LINK_ERROR : `Paste a Google Meet link that ${host} created.`);
+    // Empty for Google Meet means "use the founder's saved link" (the server does that).
+    const link = meet ? (needsTyped ? typed || '' : '') : form.mode === 'Zoho Cliq' ? form.link : '';
     const { meetOverride: _unused, ...rest } = form;
     void _unused;
     const r = await run(() => api<{ booking: Booked }>('POST', '/bookings', { leadId, founderId: founder === 'any' ? 'any' : time.founderId, date: time.date, start: time.start, ...rest, link }));
@@ -109,36 +111,43 @@ export default function Book({ user }: { user: TeamUser }) {
       setDone(`Booked with ${nameOf(r.booking.founderId)} on ${formatDate(r.booking.date)} at ${fmt(r.booking.start)}. ${nameOf(r.booking.founderId)} has been notified.`);
       setBooked(r.booking);
       setTime(null);
-      setMeetEdited(false);
+      setCustomLink(false);
+      setForm((f) => ({ ...f, meetOverride: '' }));
     }
   };
 
   const howChips = (step?: number) => (
     <ChipGroup step={step} label="How" options={MODES} value={form.mode} onChange={(v) => v && setForm({ ...form, mode: v })} required />
   );
-  const usingSaved = Boolean(founderLink) && meetLink === founderLink;
-  const meetNote = !meet ? null : (
+  const typedField = (label: string) => (
+    <>
+      <Field label={label} type="url" inputMode="url" autoComplete="off" placeholder="https://meet.google.com/abc-defg-hij" value={form.meetOverride} onChange={(e) => setForm({ ...form, meetOverride: e.target.value })} />
+      {form.meetOverride.trim() !== '' && typed === null && <p className="text-xs text-warn">{MEET_LINK_ERROR}</p>}
+    </>
+  );
+  const meetNote = !meet ? null : !meetFounderId ? (
+    <p className="text-xs text-fg-3">
+      {anyFounderHasLink ? 'The call uses the Google Meet room of the founder you book with. Pick a time to see whose.' : 'No founder has set up a Google Meet link yet. Pick a time to continue.'}
+    </p>
+  ) : founderLink && !customLink ? (
     <div className="space-y-2">
-      <Field
-        label="Meeting link"
-        type="url"
-        inputMode="url"
-        autoComplete="off"
-        placeholder="https://meet.google.com/abc-defg-hij"
-        value={form.meetOverride}
-        onChange={(e) => { setMeetEdited(true); setForm({ ...form, meetOverride: e.target.value }); }}
-      />
-      {form.meetOverride.trim() !== '' && meetLink === null ? (
-        <p className="text-xs text-warn">{MEET_LINK_ERROR}</p>
-      ) : (
-        <p className="text-xs text-fg-3">{MEET_BOOKING_HELP}</p>
+      <p className="text-sm font-medium">Meeting link</p>
+      <div className="flex items-center gap-3 rounded-2xl bg-bg-3/70 px-4 py-3">
+        <Check className="h-4 w-4 shrink-0 text-good" />
+        <span className="min-w-0 flex-1 truncate text-sm">{founderLink.replace('https://', '')}</span>
+      </div>
+      <p className="text-xs text-fg-3">{host} hosts this call and lets the client in.</p>
+      <button type="button" className="text-xs font-medium text-brand" onClick={() => setCustomLink(true)}>Use a different link</button>
+    </div>
+  ) : (
+    <div className={cx('space-y-2', !founderLink && 'rounded-2xl border border-warn/40 bg-warn/10 p-4')}>
+      {!founderLink && (
+        <p className="flex items-start gap-2 text-sm"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" /> {host} hasn't set up a Meet link yet</p>
       )}
-      {meetFounderId && (
-        usingSaved ? (
-          <p className="flex items-center gap-2 text-xs text-fg-3"><Check className="h-3.5 w-3.5 text-good" /> {nameOf(meetFounderId)}'s saved link. Paste a different one to use a new link for this call.</p>
-        ) : !founderLink ? (
-          <p className="flex items-start gap-2 text-xs text-warn"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {nameOf(meetFounderId)} hasn't saved a Meet link. Paste one for this call.</p>
-        ) : null
+      {typedField('Meeting link for this call')}
+      <p className="text-xs text-fg-3">{MEET_BOOKING_HELP} Ask {host} for a link they created, or make sure whoever created it joins the call.</p>
+      {founderLink && (
+        <button type="button" className="text-xs font-medium text-brand" onClick={() => { setCustomLink(false); setForm((f) => ({ ...f, meetOverride: '' })); }}>Use {host}'s link instead</button>
       )}
     </div>
   );

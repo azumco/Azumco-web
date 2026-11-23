@@ -5,7 +5,7 @@ import { MEET_BOOKING_HELP, MEET_LINK_ERROR, normalizeMeetLink } from '../../../
 import MeetActions from '../components/MeetActions';
 import MeetLinkField from '../components/MeetLinkField';
 import { useMemo, useState } from 'react';
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, Trash2 } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Clock, Trash2 } from 'lucide-react';
 import { addDays, coversDay, planSlots, toMin, weekday, type AvailRule } from '../../../shared/slots';
 import { formatDate, fromIst, istDate } from '../../../shared/time';
 import { api } from '../api';
@@ -234,8 +234,14 @@ export default function Calendar({ user }: { user: TeamUser }) {
         <Button onClick={() => setAdding(true)}>Add my free slots</Button>
       </PageTitle>
 
-      {/* Your reusable Google Meet link, used for calls booked with you. */}
-      <Card className="mb-6">
+      {/* Your reusable Google Meet room, used for every call booked with you. */}
+      <Card className={cx('mb-6', !founders.find((f) => f.id === user.id)?.meetLink && 'border-warn/50')}>
+        {!founders.find((f) => f.id === user.id)?.meetLink && (
+          <p className="mb-4 flex items-start gap-2 rounded-2xl bg-warn/10 px-4 py-3 text-sm">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />
+            Set up your Google Meet link. Every call booked with you uses it, and you let the client in when you join.
+          </p>
+        )}
         <MeetLinkField
           label="Your Google Meet link (used for calls booked with you)"
           value={founders.find((f) => f.id === user.id)?.meetLink ?? ''}
