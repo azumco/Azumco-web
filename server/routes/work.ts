@@ -22,6 +22,7 @@ import { GoalService } from '../goals/service.ts';
 import { employeeDashboard, founderDashboard } from '../dashboard/service.ts';
 import { checkedMeetLink } from './users.ts';
 import { leadHistory, leadHistoryDetail } from '../leads/history.ts';
+import { setupChecklist } from '../setup/checklist.ts';
 import { audit } from '../audit.ts';
 
 const FOUNDERS = requireRole('admin');
@@ -54,6 +55,11 @@ export function workRoutes(db: Db, places: PlacesService) {
     if (me(res).role === 'employee') await notifyExpiringSoon(db).catch(() => 0);
     const [rows, ctx] = await Promise.all([visibleLeads(db, me(res)), viewContext(db)]);
     res.json({ leads: rows.map((l) => leadView(l, ctx)), serverNow: ctx.now.toISOString() });
+  });
+
+  // Founders: the "Get ready" checklist (derived from live data).
+  r.get('/setup-checklist', FOUNDERS, async (_req, res) => {
+    res.json(await setupChecklist(db, bookings, me(res), places.enabled));
   });
 
   // A team member's own history (registered before /leads/:id).

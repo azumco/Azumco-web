@@ -1,6 +1,7 @@
 // Founder Home: only what needs action today, the four numbers, the pipeline,
 // upcoming calls, Google usage, and the milestone + commission column.
 
+import SetupChecklist from '../components/SetupChecklist';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { formatDate, formatInr, istDate } from '../../../shared/time';
 import { useApi } from '../hooks';
@@ -77,6 +78,8 @@ export default function Home({ user }: { user: TeamUser }) {
           <Button onClick={() => navigate('/team/find')}>Find clients</Button>
         </div>
       </div>
+
+      <SetupChecklist user={user} />
 
       <Async state={state} label="Loading your day…">
         {(d) => {
