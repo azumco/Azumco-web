@@ -577,13 +577,18 @@ export function Async<T>({ state, children, label }: { state: { data: T | null; 
 export function Modal({ title, accent, subtitle, open, onClose, children, wide }: { title: string; accent?: string; subtitle?: ReactNode; open: boolean; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const id = useId();
   const ref = useRef<HTMLDivElement>(null);
+  // Latest onClose without re-running the effect: callers often pass a new
+  // function on every render, and re-running would move focus back to the
+  // first field after each keystroke.
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     const opener = document.activeElement as HTMLElement | null;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        onClose();
+        closeRef.current();
       } else if (e.key === 'Tab' && ref.current) {
         // Keep focus inside the dialog.
         const f = [...ref.current.querySelectorAll<HTMLElement>('button, input, textarea, [href], [tabindex]:not([tabindex="-1"])')].filter((el) => !el.hasAttribute('disabled'));
@@ -606,7 +611,7 @@ export function Modal({ title, accent, subtitle, open, onClose, children, wide }
       document.body.style.overflow = prev;
       opener?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/70 sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
