@@ -8,12 +8,19 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-const NAMES = ['SESSION_SECRET', 'SUPERADMIN_INITIAL_PASSWORD', 'GOOGLE_PLACES_API_KEY', 'CRON_TOKEN', 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64'] as const;
+const NAMES = ['SESSION_SECRET', 'SUPERADMIN_INITIAL_PASSWORD', 'GOOGLE_PLACES_API_KEY', 'CRON_TOKEN', 'GOOGLE_SERVICE_ACCOUNT_JSON_BASE64', 'DATABASE_URL'] as const;
 
 const secrets: { name: string; value: string }[] = [];
 for (const name of NAMES) {
   const v = process.env[name];
   if (v && v.length >= 8) secrets.push({ name, value: v });
+}
+// The database password on its own (it could leak without the rest of the URL).
+try {
+  const pw = decodeURIComponent(new URL(process.env.DATABASE_URL ?? '').password);
+  if (pw.length >= 8) secrets.push({ name: 'DATABASE_URL password', value: pw });
+} catch {
+  /* no database configured */
 }
 // The private key inside the service-account JSON, as a distinctive slice of its body.
 try {

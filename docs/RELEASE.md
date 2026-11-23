@@ -118,3 +118,68 @@ STAGING_MODE=true npm run staging:walk -- http://localhost:8090 <file> <needles>
 STAGING_MODE=true npm run staging:walk -- http://localhost:8090 <file> <needles> b   # steps 8–9, after the timer
 STAGING_MODE=true npm run staging -- grep <needles>     # proves no Google content was stored
 ```
+
+## 9. Move the data to Supabase Postgres (cutover runbook — do this yourself)
+
+The app can store its data in Google Sheets (today) or in Supabase Postgres. The switch is one environment variable, `DATA_BACKEND`; the default stays `sheets`, so merging this changes nothing until you switch.
+
+### What the Postgres setup is
+- **Connection:** `DATABASE_URL` = the Supabase **Session pooler** connection string (Project → Connect → Session pooler). Port 5432 on `*.pooler.supabase.com`. Not the transaction pooler (6543), not the direct connection.
+- **No Supabase client library, no anon or service-role key.** Keep the Data API **disabled** (Project Settings → Data API). The app only uses `DATABASE_URL`.
+- **Security in depth:** Row Level Security is ON for every table with NO policies, so nothing is readable through any API role. The app connects as the table owner, which RLS does not restrict.
+- **TLS:** always encrypted. To also verify the server's identity, download the CA certificate (Project Settings → Database → SSL Configuration → Download certificate), base64 it on one line, and set `DATABASE_CA_CERT`. Without it the link is encrypted but a man-in-the-middle could impersonate the server; with the session pooler on Supabase's network that risk is low, but setting it is recommended.
+- **Schema:** tables live in `public` (or `DB_SCHEMA`). Migrations run automatically at start and with `npm run db:migrate`.
+- **Free tier:** the project pauses after a quiet week. The in-process scheduler queries the database every 15 minutes while the service is awake, and UptimeRobot keeps the service awake, so it should never count as idle. Free projects have **no automatic backups**: run `npm run db:backup` regularly (weekly, and before any risky change).
+
+### Environment variables to add on Render (names only)
+| Variable | Value |
+|---|---|
+| `DATA_BACKEND` | `postgres` |
+| `DATABASE_URL` | the Session pooler string (contains the database password) |
+| `DATABASE_CA_CERT` | optional, recommended (base64 of the Supabase CA certificate) |
+
+Keep all the existing variables (the Google ones are still used for Places and for rollback). Do NOT set `DB_SCHEMA` on Render (production uses `public`).
+
+### Order of steps (about 15 minutes)
+1. **Pick a quiet time.** Tell the team: "The team area pauses for 15 minutes at HH:MM; don't save anything until I say so."
+2. **Back up the Sheet** (File → Make a copy) so you have a frozen copy.
+3. On your machine, with the production values in `.env` and `DATA_BACKEND` unset:
+   1. `npm run db:import-from-sheets -- --dry-run` — read the per-table summary. Expect 0 skipped; "adjusted" means a reference to a deleted lead was cleared (harmless).
+   2. `npm run db:import-from-sheets` — imports, then runs the verification. Every line must say PASS.
+   3. Run it once more: every table must show `inserted 0` (idempotent).
+   4. `npm run db:backup` — your first Postgres backup.
+4. **Render → Environment:** add `DATA_BACKEND=postgres`, `DATABASE_URL` (and `DATABASE_CA_CERT`). Save → this redeploys.
+5. Watch the deploy log for `data backend {"backend":"postgres"…}` and `bootstrap complete`. Migrations run automatically (already applied by the import, so "already up to date").
+6. **Smoke test immediately** (section 7). Everyone must sign in again (sessions are not copied).
+7. Tell the team they can carry on.
+
+### Rollback
+Set `DATA_BACKEND=sheets` on Render and redeploy. The app goes back to the Sheet **as it was at cutover**: anything written after the switch (calls, bookings, expenses, …) exists only in Postgres and will NOT be in the Sheet. That is why the cutover must happen at a quiet time and be smoke-tested at once — if anything is wrong, roll back before people start working.
+
+A reverse export (Postgres → Sheet) is feasible but not built: it would need to rewrite every tab and re-check the Sheet's own constraints, and it is only useful after people have already worked on Postgres. If you ever need it, the backup JSON (`npm run db:backup`) has every row in the same field names as the Sheet columns, so it can be pasted or scripted back.
+
+### Backups and restore
+- `npm run db:backup` → `backups/public-<time>/<Tab>.json` + `manifest.json` (row counts). The folder is git-ignored. The files include password hashes: keep them private (e.g. an encrypted drive), never in the repo or chat.
+- Restore into an EMPTY schema or project: `npm run db:restore -- backups/public-<time>` (add `--schema <name>` to restore beside the live data and compare first). It migrates, inserts every row with its original id and timestamps, and runs the same verification.
+
+### Rotating the database password
+Supabase → Project Settings → Database → Reset database password. Copy the new Session pooler string, update `DATABASE_URL` on Render (redeploys) and in your local `.env`. Old connections drop; the app reconnects with the new one.
+
+### Staging on Postgres (local only)
+`DATA_BACKEND=postgres DB_SCHEMA=staging STAGING_MODE=true NODE_ENV=production npm run start:local` uses the `staging` schema of the same project (refused on Render, refused with `DB_SCHEMA=public`). Load it with `npm run db:import-from-sheets -- --staging --schema staging`.
+
+### Performance (measured on staging data, from a laptop in India to Supabase; ~90 ms per round trip)
+| Endpoint | Sheets cold | Sheets warm | Postgres cold | Postgres warm |
+|---|---|---|---|---|
+| Login | 4543 | 3147 | 2715 | 1916 |
+| Founder Home | 1460 | 5 | 1005 | 4 |
+| Leads | 7 | 4 | 8 | 3 |
+| Find clients (status) | 5 | 2 | 2 | 1 |
+| Calendar (slots + bookings) | 402 | 8 | 95 | 3 |
+| Money | 6 | 3 | 3 | 3 |
+| Team Queue | 4 | 3 | 3 | 3 |
+| Log a call (write) | 1997 | 2037 | 878 | 898 |
+
+Milliseconds; "cold" is the first request after start, "warm" the median of 5. Writes are 2× faster; reads are served from a short cache on both. From Render in the same region as the Supabase project every database round trip drops to a few ms, so pick the Supabase region closest to the Render region. Login time is mostly the deliberate bcrypt cost.
+
+**Caching on Postgres:** each server keeps a 5-second per-table read cache that it drops the moment it writes that table (Sheets used 30 s). Reads inside a write transaction always go to the database. Only another process's writes (e.g. during a deploy overlap) can appear up to 5 s late.

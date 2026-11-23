@@ -16,6 +16,8 @@ import { importRows, readAllRows, verify } from '../db/transfer.ts';
 import type { PlacesClient } from '../places/client.ts';
 
 const d = PG ? describe : describe.skip;
+/** Read straight from the database (another "server" may just have written). */
+const fresh = async (t: Parameters<Harness['db']['all']>[0]) => (await h!.db.loadFresh([t]))[0].rows;
 let h: Harness | undefined;
 afterEach(async () => {
   await h?.close();
@@ -50,7 +52,7 @@ d('Postgres schema', () => {
     await expect(pool.query(`UPDATE "audit" SET "action" = 'changed' WHERE "id" = $1`, [a.id])).rejects.toThrow(/append-only/);
     await expect(pool.query(`DELETE FROM "audit" WHERE "id" = $1`, [a.id])).rejects.toThrow(/append-only/);
     // Unique email, case-insensitive.
-    const u = (await h.db.all('Users'))[0];
+    const u = (await fresh('Users'))[0];
     await expect(h.db.insert('Users', { ...u, id: '', email: u.email.toUpperCase() }, 't')).rejects.toThrow();
   });
 });
@@ -63,15 +65,15 @@ d('Concurrency on Postgres', () => {
     const staff = await memberClient(h, owner, EMPLOYEE_EMAIL);
     await admin.client.req('POST', '/api/availability', { date: '2026-11-23', start: '10:00', end: '11:00', slotMinutes: 30 });
     const lead = (await admin.client.req('POST', '/api/leads', { businessName: 'Race Co', assignTo: staff.id })).body.id;
-    const user = toSessionUser((await h.db.all('Users')).find((u) => u.id === staff.id)!);
+    const user = toSessionUser((await fresh('Users')).find((u) => u.id === staff.id)!);
     const other = await h.secondDb();
     const body = { leadId: lead, founderId: admin.id, date: '2026-11-23', start: '10:00', clientName: 'C', mode: 'Phone call', phone: '', link: '', notes: '' } as never;
     const results = await Promise.allSettled([1, 2, 3, 4].map((i) => new BookingService(i % 2 ? h!.db : other).book(user, body)));
     expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
-    expect((await h.db.all('Bookings')).filter((b) => b.status === 'booked')).toHaveLength(1);
+    expect((await fresh('Bookings')).filter((b) => b.status === 'booked')).toHaveLength(1);
     // Bypassing the app: the exclusion constraint itself refuses an overlapping active booking.
     const pg = h.db as PgDb;
-    const base = (await h.db.all('Bookings'))[0];
+    const base = (await fresh('Bookings'))[0];
     await expect(pg.insertRaw('Bookings', [{ ...base, id: 'overlap-1', start: '10:15', end: '10:45' }])).rejects.toMatchObject({ code: '23P01' });
     // …but a cancelled one may overlap.
     await expect(pg.insertRaw('Bookings', [{ ...base, id: 'overlap-2', status: 'cancelled' }])).resolves.toBe(1);
@@ -79,7 +81,7 @@ d('Concurrency on Postgres', () => {
 
   it('parallel Places claims at the cap: the cap is never exceeded', async () => {
     h = await startHarness();
-    const s = (await h.db.all('Settings')).find((r) => r.key === 'placesMonthlyCap')!;
+    const s = (await fresh('Settings')).find((r) => r.key === 'placesMonthlyCap')!;
     await h.db.update('Settings', s.id, { value: '3' }, 't');
     const other = await h.secondDb();
     const claims = await Promise.all(Array.from({ length: 12 }, (_, i) => claimPlacesCall(i % 2 ? h!.db : other, 'text_search_enterprise', 'u')));
@@ -87,7 +89,7 @@ d('Concurrency on Postgres', () => {
     const pool = await testPool();
     const usage = (await pool.query<{ used: number }>(`SELECT "used" FROM "places_usage"`)).rows;
     expect(usage.reduce((t, r) => t + r.used, 0)).toBe(3);
-    expect((await h.db.all('PlacesClaims')).filter((c) => c.status === 'claimed')).toHaveLength(3);
+    expect((await fresh('PlacesClaims')).filter((c) => c.status === 'claimed')).toHaveLength(3);
     // Releasing an unbilled call gives the slot back, exactly once.
     const first = claims.find((c) => c.ok) as { ok: true; claimId: string };
     await Promise.all([(h.db as PgDb).releasePlacesCall(first.claimId, 'u'), (other as PgDb).releasePlacesCall(first.claimId, 'u')]);
@@ -103,7 +105,7 @@ d('Concurrency on Postgres', () => {
     const body = { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', searchedAt: search.body.searchedAt, placeIds: ['ChIJ_fake_place_pg_0'] };
     const [a, b] = await Promise.all([admin.client.req('POST', '/api/places/import', body), owner.req('POST', '/api/places/import', body)]);
     expect([a.status, b.status]).toEqual([200, 200]);
-    const leads = (await h.db.all('Leads')).filter((l) => l.placeId === 'ChIJ_fake_place_pg_0');
+    const leads = (await fresh('Leads')).filter((l) => l.placeId === 'ChIJ_fake_place_pg_0');
     expect(leads).toHaveLength(1);
     // Two founders assign it at the same moment: one consistent final state, both recorded.
     const id = leads[0].id;
@@ -114,7 +116,7 @@ d('Concurrency on Postgres', () => {
     expect(r.map((x) => x.status)).toEqual([200, 200]);
     const after = (await h.db.find('Leads', id))!;
     expect(after.assignedTo).toBe(staff.id);
-    const audits = (await h.db.all('Audit')).filter((e) => e.action === 'leads.assign' && e.after.includes(id));
+    const audits = (await fresh('Audit')).filter((e) => e.action === 'leads.assign' && e.after.includes(id));
     expect(audits).toHaveLength(2);
   });
 
@@ -125,16 +127,16 @@ d('Concurrency on Postgres', () => {
     const staff = await memberClient(h, owner, EMPLOYEE_EMAIL);
     const search = await admin.client.req('POST', '/api/places/search', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', limit: 1 });
     await admin.client.req('POST', '/api/places/import', { category: 'Gym', state: 'Madhya Pradesh', city: 'Bhopal', searchedAt: search.body.searchedAt, placeIds: ['ChIJ_fake_place_pg_0'], assignTo: staff.id, windowHours: 12 });
-    const lead = (await h.db.all('Leads'))[0];
+    const lead = (await fresh('Leads'))[0];
     h.clock.advance(13 * 3_600_000);
     const other = await h.secondDb();
     await Promise.all([runMaintenance(h.db), runMaintenance(other), runMaintenance(h.db), runMaintenance(other)]);
     await runMaintenance(h.db);
-    const notes = (await h.db.all('Notifications')).filter((n) => n.refId === lead.id && (n.type === 'lead_expired' || n.type === 'assignment_expired'));
+    const notes = (await fresh('Notifications')).filter((n) => n.refId === lead.id && (n.type === 'lead_expired' || n.type === 'assignment_expired'));
     expect(notes.filter((n) => n.type === 'lead_expired')).toHaveLength(1);
     expect(notes.filter((n) => n.type === 'assignment_expired')).toHaveLength(2);
-    expect((await h.db.all('Audit')).filter((a) => a.action === 'lead.assignment_expired' && a.entityId === lead.id)).toHaveLength(1);
-    expect((await h.db.all('Expirations')).filter((e) => e.leadId === lead.id)).toHaveLength(1);
+    expect((await fresh('Audit')).filter((a) => a.action === 'lead.assignment_expired' && a.entityId === lead.id)).toHaveLength(1);
+    expect((await fresh('Expirations')).filter((e) => e.leadId === lead.id)).toHaveLength(1);
   });
 });
 

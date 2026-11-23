@@ -4,8 +4,11 @@
 // - exclusive(): one in-process queue AND one database transaction holding an
 //   advisory lock, so a multi-step write is atomic and serialized across every
 //   server process. Any error rolls the whole step back.
-// - Reads are always fresh (no cache): Postgres is fast enough, and a cache
-//   only adds staleness risk between processes.
+// - Reads: a small per-table cache (default 5 s) that is dropped the moment
+//   this server writes the table, so a server never sees its own data stale.
+//   Reads inside a write transaction and loadFresh() always hit the database.
+//   Only another process's writes can appear up to the TTL late (the Sheets
+//   cache was 30 s).
 // - Constraints in the schema back up the app's own checks (unique email,
 //   no double-booking, one expiry per lead and deadline, …).
 // - The Places monthly cap is checked and incremented in ONE statement.
@@ -27,12 +30,25 @@ const SYSTEM = new Set(['id', 'createdAt', 'updatedAt', 'updatedBy']);
 
 export class PgDb extends Db {
   private chain: Promise<unknown> = Promise.resolve();
+  private readonly ttlMs: number;
+  private readonly readCache = new Map<TabName, { rows: Row[]; at: number }>();
+  /** Bumped on every write to a table; a read only fills the cache if no write happened meanwhile. */
+  private readonly gen = new Map<TabName, number>();
+  /** Tables written by the current exclusive task (dropped again after commit). */
+  private touched = new Set<TabName>();
 
   constructor(
     readonly pg: PgPool,
-    opts: { now?: () => Date } = {},
+    opts: { now?: () => Date; cacheTtlMs?: number } = {},
   ) {
     super(NO_SHEETS, { now: opts.now, cacheTtlMs: 0 });
+    this.ttlMs = opts.cacheTtlMs ?? 5_000;
+  }
+
+  private dirty(tab: TabName): void {
+    this.gen.set(tab, (this.gen.get(tab) ?? 0) + 1);
+    this.readCache.delete(tab);
+    if (this.pg.current) this.touched.add(tab);
   }
 
   // ─── Setup ──────────────────────────────────────────────────────────────
@@ -46,10 +62,13 @@ export class PgDb extends Db {
   override exclusive<T>(task: () => Promise<T>): Promise<T> {
     // Nested calls (already inside our transaction) run directly.
     if (this.pg.current) return task();
-    const run = this.chain.then(
-      () => this.pg.transaction(task),
-      () => this.pg.transaction(task),
-    );
+    const inTx = () => {
+      this.touched = new Set();
+      // After commit (or rollback) drop whatever the task touched, so reads
+      // that raced the transaction cannot keep pre-commit rows cached.
+      return this.pg.transaction(task).finally(() => this.touched.forEach((t) => this.dirty(t)));
+    };
+    const run = this.chain.then(inTx, inTx);
     this.chain = run.catch(() => undefined);
     return run;
   }
@@ -63,22 +82,33 @@ export class PgDb extends Db {
   }
 
   override async all(tab: TabName): Promise<Row[]> {
-    return this.select(tab);
+    if (this.pg.current || this.ttlMs <= 0) return this.select(tab);
+    const hit = this.readCache.get(tab);
+    if (hit && Date.now() - hit.at < this.ttlMs) return hit.rows;
+    const g = this.gen.get(tab) ?? 0;
+    const rows = await this.select(tab);
+    if ((this.gen.get(tab) ?? 0) === g) this.readCache.set(tab, { rows, at: Date.now() });
+    return rows;
   }
 
   override async find(tab: TabName, id: string): Promise<Row | undefined> {
-    return (await this.select(tab, '"id" = $1', [id]))[0];
+    return (await this.all(tab)).find((r) => r.id === id);
   }
 
   override async loadFresh(tabs: TabName[]): Promise<TabState[]> {
     const fetchedAt = this.now().getTime();
     // Inside a transaction the client runs them in order; otherwise in parallel.
+    const gens = tabs.map((t) => this.gen.get(t) ?? 0);
     const results = await Promise.all(tabs.map((t) => this.select(t)));
+    if (!this.pg.current && this.ttlMs > 0) {
+      tabs.forEach((t, i) => (this.gen.get(t) ?? 0) === gens[i] && this.readCache.set(t, { rows: results[i], at: Date.now() }));
+    }
     return results.map((rows) => ({ header: [], rows, rowNumbers: new Map(), fetchedAt }));
   }
 
-  override invalidate(): void {
-    // No cache to drop.
+  override invalidate(tab?: TabName): void {
+    if (tab) this.dirty(tab);
+    else for (const t of [...this.readCache.keys()]) this.dirty(t);
   }
 
   // ─── Writes ─────────────────────────────────────────────────────────────
@@ -97,6 +127,7 @@ export class PgDb extends Db {
   /** Insert rows exactly as given (system fields included). Used by the import, restore and the inserts below. */
   async insertRaw(tab: TabName, rows: Row[], onConflict: 'error' | 'nothing' = 'error'): Promise<number> {
     if (!rows.length) return 0;
+    this.dirty(tab);
     const cols = columnsFor(tab);
     let inserted = 0;
     // Chunk to stay well under the parameter limit.
@@ -151,6 +182,7 @@ export class PgDb extends Db {
       const after = { ...before, ...safe, updatedAt: stamp, updatedBy: actorId } as Row;
       out.push({ before, after, keys: [...Object.keys(safe), 'updatedAt', 'updatedBy'] });
     }
+    this.dirty(tab);
     for (const { after, keys } of out) {
       const defs = keys.map((k) => cols.get(k)!);
       const params = this.values(defs, after, tab);
@@ -164,6 +196,7 @@ export class PgDb extends Db {
     const [row] = await this.select(tab, '"id" = $1', [id], true);
     if (!row) throw new NotFoundError();
     if (expectedUpdatedAt !== undefined && expectedUpdatedAt !== row.updatedAt) throw new ConflictError();
+    this.dirty(tab);
     await this.pg.query(`DELETE FROM ${ident(TABLE[tab])} WHERE "id" = $1`, [id]);
     return row;
   }
@@ -179,6 +212,7 @@ export class PgDb extends Db {
   async claimPlacesCall(yearMonth: string, sku: string, actorId: string, cap: number): Promise<string | null> {
     const id = randomUUID();
     const stamp = this.now().toISOString();
+    this.dirty('PlacesClaims');
     const res = await this.pg.query<{ id: string }>(
       `WITH bump AS (
          INSERT INTO "places_usage" ("year_month", "used", "updated_at")
@@ -197,6 +231,7 @@ export class PgDb extends Db {
 
   /** Release an unbilled claim: flip it and give the month its slot back, atomically. */
   async releasePlacesCall(claimId: string, actorId: string): Promise<void> {
+    this.dirty('PlacesClaims');
     await this.pg.transaction(async () => {
       const r = await this.pg.query<{ year_month: string }>(
         `UPDATE "places_claims" SET "status" = 'released', "updated_at" = $2, "updated_by" = $3 WHERE "id" = $1 AND "status" = 'claimed' RETURNING "year_month"`,
@@ -208,6 +243,7 @@ export class PgDb extends Db {
 
   /** Delete expired sessions. Returns how many. (Run by the maintenance job.) */
   async pruneExpiredSessions(): Promise<number> {
+    this.dirty('Sessions');
     const r = await this.pg.query(`DELETE FROM "sessions" WHERE "expires_at" < $1`, [this.now().toISOString()]);
     return r.rowCount ?? 0;
   }
