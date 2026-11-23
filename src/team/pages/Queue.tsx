@@ -8,6 +8,7 @@ import { useApi, useServerNow } from '../hooks';
 import { navigate } from '../router';
 import { Async, Countdown, Segmented, cx } from '../ui';
 import Workspace, { DetailPanel, LeadRow, useSelection } from '../components/Workspace';
+import AddOwnLead from '../components/AddOwnLead';
 import { LeadPanel, shortLabel } from './LeadDetail';
 import { firstName, istGreeting, type Lead, type LeadsResponse, type TeamUser } from '../types';
 
@@ -138,7 +139,10 @@ export default function Queue({ user }: { user: TeamUser }) {
         const header = (
           <div className="mb-6 space-y-5">
             <div className="flex flex-col gap-5 min-[1100px]:flex-row min-[1100px]:items-end min-[1100px]:justify-between">
-              <Greeting user={user} line={toCall.length ? `${toCall.length} lead${toCall.length === 1 ? ' is' : 's are'} waiting for your call.` : 'Nothing is waiting for you right now.'} />
+              <div>
+                <Greeting user={user} line={toCall.length ? `${toCall.length} lead${toCall.length === 1 ? ' is' : 's are'} waiting for your call.` : 'Nothing is waiting for you right now.'} />
+                <AddOwnLead className="mt-4" />
+              </div>
               <Stats me={me.data} />
             </div>
             {expiring.length > 0 && (

@@ -11,6 +11,7 @@ interface Note { id: string; type: string; message: string; at: string; read: bo
 
 const ICON: Record<string, { icon: typeof List; tone: string }> = {
   leads_assigned: { icon: List, tone: 'bg-brand/15 text-brand' },
+  lead_added: { icon: List, tone: 'bg-brand/15 text-brand' },
   lead_expiring: { icon: Clock, tone: 'bg-bad/15 text-bad' },
   booking_confirmed: { icon: CalendarDays, tone: 'bg-info/15 text-info' },
   booking_created: { icon: CalendarDays, tone: 'bg-info/15 text-info' },

@@ -98,7 +98,8 @@ export function workRoutes(db: Db, places: PlacesService) {
     res.json({ lead: leadView(lead, ctx), calls, serverNow: ctx.now.toISOString() });
   });
 
-  r.post('/leads', FOUNDERS, async (req, res) => {
+  // Founders add and assign leads; a team member can add their own finds (assigned to themselves).
+  r.post('/leads', async (req, res) => {
     const lead = await createLead(db, me(res), parse(createLeadSchema, req.body));
     res.status(201).json({ id: lead.id });
   });

@@ -107,7 +107,6 @@ describe('AC2 — employees get 403 on expense, settings and Places routes', () 
       ['POST', '/api/places/import', {}],
       ['GET', '/api/leads/export.csv'],
       ['DELETE', '/api/leads/any'],
-      ['POST', '/api/leads', { businessName: 'x' }],
       ['POST', '/api/leads/assign', { leadIds: ['x'], assigneeId: null }],
       ['GET', '/api/dashboard/founder'],
     ];

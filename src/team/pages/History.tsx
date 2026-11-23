@@ -11,6 +11,7 @@ import { useApi } from '../hooks';
 import { navigate } from '../router';
 import { Async, BoxInput, ChoiceChip, Modal, Segmented, StatusPill, Tag, cx } from '../ui';
 import Workspace, { DetailPanel, LeadRow, useIsWide } from '../components/Workspace';
+import AddOwnLead from '../components/AddOwnLead';
 import type { TeamUser } from '../types';
 
 export interface HistoryItem {
@@ -118,6 +119,7 @@ export default function History(_props: { user: TeamUser }) {
           My <span className="font-serif font-normal italic tracking-normal text-brand">leads</span>
         </h1>
         <p className="mt-1 text-fg-2">Every lead you've logged a call on, newest first.</p>
+        <AddOwnLead className="mt-4" />
       </div>
       <Segmented className="md:hidden" options={[{ value: 'call', label: 'To call' }, { value: 'followups', label: 'Follow-ups' }, { value: 'history', label: 'History' }]} value="history" onChange={(v) => v === 'call' ? navigate('/team') : v === 'followups' && navigate('/team/followups')} />
       <BoxInput aria-label="Search your leads" placeholder="Search business, contact, phone or outcome" value={q} onChange={(e) => setQ(e.target.value)} icon={<Search className="h-4 w-4 text-fg-3" />} />

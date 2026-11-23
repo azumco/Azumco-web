@@ -508,12 +508,23 @@ export async function releaseLeadsOf(db: Db, userId: string, actorId: string): P
 
 // ─── Create / update / delete ───────────────────────────────────────────────
 
-export async function createLead(db: Db, actor: SessionUser, input: z.infer<typeof createLeadSchema>): Promise<Row> {
+export async function createLead(db: Db, actor: SessionUser, raw: z.infer<typeof createLeadSchema>): Promise<Row> {
+  const founder = isFounder(actor);
+  // A team member's own find: always assigned to them, no expiry timer, never
+  // marked as a Google lead (that source is only for Find clients).
+  const input = founder ? raw : { ...raw, assignTo: actor.id, deadlineHours: undefined, source: raw.source === 'Google Places' ? '' : raw.source };
   if (input.assignTo) await activeAssignee(db, input.assignTo);
   return db.exclusive(async () => {
     const now = db.now();
     const [state] = await db.loadFresh(['Leads']);
-    const phone = cleanPhone(input.phone, state.rows);
+    let phone: string;
+    try {
+      phone = cleanPhone(input.phone, state.rows);
+    } catch (e) {
+      // Team members don't see other people's leads, so don't name the match.
+      if (!founder && e instanceof HttpError && e.code === 'DUPLICATE') throw new HttpError(409, 'This number is already in Azumco\'s leads. Ask a founder before adding it again.', 'DUPLICATE');
+      throw e;
+    }
     const { assignTo, deadlineHours, ...fields } = input;
     const row = await db.insertUnqueued(
       'Leads',
@@ -529,8 +540,15 @@ export async function createLead(db: Db, actor: SessionUser, input: z.infer<type
       },
       actor.id,
     );
-    if (assignTo) {
+    if (assignTo && assignTo !== actor.id) {
       await notifyUnqueued(db, [{ userId: assignTo, type: 'leads_assigned', message: `New lead assigned to you: ${leadLabel(row)}.`, refId: row.id }], actor.id);
+    }
+    if (!founder) {
+      // Founders hear about leads a team member adds, and it is audited.
+      const first = actor.name.split(' ')[0];
+      const founders = await founderIds(db);
+      await notifyUnqueued(db, founders.map((f) => ({ userId: f, type: 'lead_added', message: `${first} added a lead: ${leadLabel(row)}${row.city ? ` (${row.city})` : ''}.`, refId: row.id })), actor.id);
+      await auditUnqueued(db, [{ actorId: actor.id, action: 'lead.create', entity: 'Leads', entityId: row.id, after: { businessName: row.businessName, source: row.source, assignedTo: actor.id } }]);
     }
     return row;
   });
