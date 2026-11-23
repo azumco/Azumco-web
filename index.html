@@ -15,13 +15,19 @@
       and the small controller are at the top of <body>.
     -->
     <style>
+      /*
+        From the first paint the overlay is a plain veil in the page colour, so
+        the app never shows for a moment before the loader. The dotted logo
+        appears only if loading takes longer than ~400 ms (.az-on).
+      */
       #az-loader {
-        position: fixed; inset: 0; z-index: 2147483000; display: none;
+        position: fixed; inset: 0; z-index: 2147483000; display: flex;
         align-items: center; justify-content: center;
         background: #0a0a0a; /* --bg */
       }
-      #az-loader.az-on { display: flex; animation: az-in 0.25s ease-out both; }
-      #az-loader.az-out { opacity: 0; transition: opacity 0.3s ease; }
+      #az-loader .azl-dots, #az-loader .azl-msg { opacity: 0; }
+      #az-loader.az-on .azl-dots, #az-loader.az-on .azl-msg { animation: az-in 0.25s ease-out both; }
+      #az-loader.az-out { opacity: 0; transition: opacity var(--az-exit, 0.3s) ease; }
       /* Scroll lock that keeps the scrollbar space, so the page width does not change on unlock. */
       html.az-lock { overflow: hidden; scrollbar-gutter: stable; }
       html.az-lock body { overflow: hidden; }
@@ -247,7 +253,9 @@
         var ONCE_PER_SESSION = true; // public site: show at most once per browser session
         var DELAY = 400;     // ms before showing (fast loads never see it)
         var MIN_SHOW = 1500; // ms on screen once shown (dots assemble, then a turn)
-        var EXIT = 300;      // ms fade-out
+        var EXIT = 300;      // ms fade-out after the logo was shown
+        var EXIT_FAST = 150; // ms fade-out of the plain veil when the page was ready quickly
+        var FAILSAFE = 90000; // ms: never cover the page longer than this, even if the app fails to start
         var ASSEMBLE = 900;  // ms for the dots to gather into the logo
         var TURN = 3200;     // ms per full horizontal turn
         var MAX_DOTS = 3500; // about the hero's density
@@ -265,7 +273,13 @@
         if (!team && ONCE_PER_SESSION && !replay) { try { seen = sessionStorage.getItem(KEY) === '1'; } catch (e) {} }
 
         function remove() { stopDots(); if (el && el.parentNode) el.parentNode.removeChild(el); el = null; root.classList.remove('az-lock'); }
-        function exit() { if (!el || leaving) return; leaving = true; el.classList.add('az-out'); setTimeout(remove, EXIT); }
+        function exit(ms) {
+          if (!el || leaving) return;
+          leaving = true;
+          el.style.setProperty('--az-exit', (ms || EXIT) / 1000 + 's');
+          el.classList.add('az-out');
+          setTimeout(remove, ms || EXIT);
+        }
 
         // The hero's dotted logo: orange vs grey points sampled from the logo
         // SVG, gathering from a sphere, then turning horizontally.
@@ -320,7 +334,6 @@
           if (!el || shown || ready) return;
           shown = true;
           el.classList.add('az-on');
-          root.classList.add('az-lock');
           startDots();
           if (!team) { try { sessionStorage.setItem(KEY, '1'); } catch (e) {} }
           setTimeout(function () { finished = true; if (ready) exit(); }, reduced ? 150 : MIN_SHOW);
@@ -329,13 +342,17 @@
           ready: function () {
             if (ready || hold) return;
             ready = true;
-            if (!shown) { clearTimeout(timer); remove(); } else if (finished) exit();
+            // Ready before the logo appeared: fade the plain veil away quickly.
+            if (!shown) { clearTimeout(timer); exit(EXIT_FAST); } else if (finished) exit();
           },
           message: function (text) { var m = el && el.querySelector('.azl-msg'); if (m) m.textContent = text || ''; },
           replay: dev ? function () { try { sessionStorage.removeItem(KEY); } catch (e) {} location.search = '?loader'; } : undefined
         };
         if (!el) return;
-        if (seen) remove(); else timer = setTimeout(show, replay ? 0 : DELAY);
+        if (seen) { remove(); return; }
+        root.classList.add('az-lock');
+        timer = setTimeout(show, replay ? 0 : DELAY);
+        if (!hold) setTimeout(function () { exit(); }, FAILSAFE);
       })();
     </script>
     <noscript>Azumco — websites, apps and digital marketing. Contact: contact.azumco@gmail.com</noscript>
