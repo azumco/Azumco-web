@@ -648,6 +648,8 @@ export function GoogleAttribution() {
   return <span className="text-xs text-fg-3">Google Maps</span>;
 }
 
+export const WAKING_TEXT = 'Waking up the server — this can take up to a minute after a quiet period.';
+
 /** A thin notice shown while any request is slow (Render cold start). */
 export function WakingBanner() {
   const [slow, setSlow] = useState(false);
@@ -656,7 +658,7 @@ export function WakingBanner() {
   return (
     <div role="status" className="fixed inset-x-0 top-0 z-[80] flex items-center justify-center gap-2 bg-bg-3 px-4 py-2 text-xs text-fg-2">
       <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" />
-      Waking up the server — this can take up to a minute after a quiet period.
+      {WAKING_TEXT}
     </div>
   );
 }

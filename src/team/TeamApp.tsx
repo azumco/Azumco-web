@@ -14,9 +14,10 @@ import {
   Users as UsersIcon, Wallet, X,
   History as HistoryIcon,
 } from 'lucide-react';
-import { api, setCsrf } from './api';
+import { api, onSlow, setCsrf } from './api';
 import { navigate, usePath } from './router';
-import { Avatar, Loading, WakingBanner, colourTone, cx } from './ui';
+import { Avatar, Loading, WAKING_TEXT, WakingBanner, colourTone, cx } from './ui';
+import { loaderMessage, loaderReady } from '../loader';
 import { isFounder, type LeadsResponse, type Role, type Session, type TeamUser } from './types';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
@@ -340,6 +341,14 @@ export default function TeamApp() {
       .then(accept)
       .catch(() => accept(null));
   }, [accept]);
+
+  // The logo loader (index.html) covers the cold start: it hides once the
+  // session check has answered, and shows the waking-up text meanwhile. The
+  // retry logic is unchanged (api.ts); WakingBanner still covers later slow requests.
+  useEffect(() => {
+    if (session !== undefined) loaderReady();
+  }, [session]);
+  useEffect(() => onSlow((slow) => loaderMessage(slow ? WAKING_TEXT : '')), []);
 
   const signOut = async () => {
     await api('POST', '/auth/logout').catch(() => undefined);
