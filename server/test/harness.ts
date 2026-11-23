@@ -9,6 +9,39 @@ import { bootstrap } from '../bootstrap.ts';
 import { Db } from '../sheets/db.ts';
 import { MemoryBackend } from '../sheets/backend.ts';
 import type { PlacesClient } from '../places/client.ts';
+import { columnsOf, type TabName } from '../sheets/schema.ts';
+import { PgPool } from '../db/pg.ts';
+import { PgDb } from '../db/pgdb.ts';
+import { migrate } from '../db/migrate.ts';
+import { TABLE } from '../db/tables.ts';
+import { caFrom } from '../db/open.ts';
+
+/**
+ * npm run test:pg sets TEST_PG=1 and PG_RUN_ID: every test file then runs on
+ * Postgres in its own throwaway schema (t_<run>_<random>), dropped after the
+ * run. Each fresh harness starts from empty tables, like a new MemoryBackend.
+ */
+export const PG = process.env.TEST_PG === '1';
+let pgShared: Promise<PgPool> | undefined;
+export function testPool(): Promise<PgPool> {
+  pgShared ??= (async () => {
+    const schema = `t_${process.env.PG_RUN_ID ?? 'local'}_${Math.random().toString(36).slice(2, 8)}`;
+    const pool = new PgPool({ connectionString: process.env.DATABASE_URL!, schema, caCert: caFrom(process.env.DATABASE_CA_CERT), max: 4 });
+    await migrate(pool);
+    return pool;
+  })();
+  return pgShared;
+}
+const seenBackends = new WeakSet<object>();
+async function pgDbFor(backend: MemoryBackend, now: () => Date): Promise<PgDb> {
+  const pool = await testPool();
+  if (!seenBackends.has(backend)) {
+    // A new "backend" means a new, empty store.
+    seenBackends.add(backend);
+    await pool.query(`TRUNCATE ${Object.values(TABLE).map((t) => `"${t}"`).join(', ')}, "places_usage" RESTART IDENTITY CASCADE`);
+  }
+  return new PgDb(pool, { now });
+}
 
 /** A controllable clock: tests move time forward instead of waiting. */
 export class FakeClock {
@@ -58,11 +91,15 @@ export interface Harness {
   clock: FakeClock;
   /** Restart the app over the SAME backend: proves state lives in storage, not memory. */
   restart: () => Promise<Harness>;
+  /** Every tab as stored (header + rows), on whichever backend is in use. */
+  snapshot: (tabs: readonly string[]) => Promise<string[][][]>;
+  /** A second, independent data layer over the same storage (a "second server process"). */
+  secondDb: () => Promise<Db>;
 }
 
 export async function startHarness(backend = new MemoryBackend(), config = testConfig(), opts: HarnessOptions = {}): Promise<Harness> {
   const clock = opts.clock ?? new FakeClock();
-  const db = new Db(backend, { now: clock.now });
+  const db = PG ? await pgDbFor(backend, clock.now) : new Db(backend, { now: clock.now });
   const ready = bootstrap(config, db);
   await ready;
   const app = createApp({ config, db, ready, placesClient: opts.placesClient ?? null });
@@ -82,6 +119,11 @@ export async function startHarness(backend = new MemoryBackend(), config = testC
       await close();
       return startHarness(backend, config, { ...opts, clock });
     },
+    snapshot: async (tabs) => {
+      if (!PG) return backend.readTabs([...tabs]);
+      return Promise.all((tabs as TabName[]).map(async (t) => [columnsOf(t), ...(await db.all(t)).map((r) => columnsOf(t).map((c) => r[c] ?? ''))]));
+    },
+    secondDb: async () => (PG ? new PgDb(await testPool(), { now: clock.now }) : new Db(backend, { now: clock.now })),
   };
 }
 

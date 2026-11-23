@@ -1,7 +1,7 @@
 // Goals ownership, the free-slot planner, real seed data and the demo guard.
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { ADMIN_EMAIL, Client, EMPLOYEE_EMAIL, FakeClock, memberClient, startHarness, superAdmin, testConfig, type Harness } from './harness.ts';
+import { ADMIN_EMAIL, Client, EMPLOYEE_EMAIL, FakeClock, memberClient, startHarness, superAdmin, testConfig, type Harness, PG } from './harness.ts';
 import { MemoryBackend } from '../sheets/backend.ts';
 import { planSlots, expandRules, type AvailRule } from '../../shared/slots.ts';
 import { assertDemoAllowed } from '../dev/demo.ts';
@@ -184,10 +184,11 @@ describe('real seed data', () => {
 
     h = await h.restart();
     expect(await snapshot()).toEqual(first);
-    expect(JSON.stringify(await h.backend.readTabs(['Projects', 'Expenses', 'Goals', 'Milestones', 'MilestoneItems']))).not.toContain('Zevia');
+    expect(JSON.stringify(await h.snapshot(['Projects', 'Expenses', 'Goals', 'Milestones', 'MilestoneItems']))).not.toContain('Zevia');
   });
 
-  it('renames existing "Zevia" data to "Zyvia" once', async () => {
+  // Sheets-only: it pre-fills a spreadsheet by hand. On Postgres the same data arrives via the import.
+  it.skipIf(PG)('renames existing "Zevia" data to "Zyvia" once', async () => {
     const backend = new MemoryBackend();
     // An older deployment: seeded data that still says Zevia, migration not yet run.
     await backend.addTabs(['Projects', 'Expenses', 'Meta']);

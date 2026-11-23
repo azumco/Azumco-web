@@ -78,8 +78,9 @@ describe('Follow-ups', () => {
       h!.db.insertManyUnqueued('CallLog', [calls('2026-11-20T06:00:00Z', a), calls('2026-11-22T05:00:00Z', b), calls('2026-11-20T06:00:00Z', c)], 'test'),
     );
     await admin.req('POST', '/api/availability', { date: '2026-11-24', start: '10:00', end: '11:00', slotMinutes: 30 });
+    const founderId = (await h!.db.all('Users')).find((u) => u.role === 'admin')!.id;
     await h!.db.exclusive(() =>
-      h!.db.insertManyUnqueued('Bookings', [{ leadId: c, founderId: 'x', date: '2026-11-24', start: '10:00', end: '10:30', status: 'booked', clientName: 'C', phone: '', mode: 'Phone call', link: '', notes: '', bookedBy: staffId, callHappened: '' }], 'test'),
+      h!.db.insertManyUnqueued('Bookings', [{ leadId: c, founderId, date: '2026-11-24', start: '10:00', end: '10:30', status: 'booked', clientName: 'C', phone: '', mode: 'Phone call', link: '', notes: '', bookedBy: staffId, callHappened: '' }], 'test'),
     );
     expect((await view(staff, a)).followUp).toBe('overdue'); // no call since, no booking
     expect((await view(staff, a)).nextAction).toBe('Overdue · 21 Nov');
