@@ -1,13 +1,13 @@
-// Founder Home: "Get ready" checklist. Your own items first (Meet link, free
+// Founder Home: a slim "Get ready" bar (progress + next step; tap to see the rest). Your own items first (Meet link, free
 // slots), then the team's (passwords, sign-ins, who receives leads, first
 // leads assigned). Everything ticks itself off from live data. Hidden once
 // all done; "Hide for now" hides it on this device until something changes.
 
 import { useState } from 'react';
-import { Check, ChevronRight, ListChecks, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useApi } from '../hooks';
 import { navigate } from '../router';
-import { ProgressBar, cx } from '../ui';
+import { cx } from '../ui';
 import { firstName, type TeamUser } from '../types';
 
 interface Checklist {
@@ -49,6 +49,7 @@ export default function SetupChecklist({ user }: { user: TeamUser }) {
   const d = state.data;
   const signature = d ? JSON.stringify(d) : '';
   const [hidden, setHidden] = useState(() => localStorage.getItem('azumco.checklist.hidden') ?? '');
+  const [open, setOpen] = useState(false);
   if (!d) return null;
 
   const names = (list: { name: string }[]) => list.map((x) => firstName(x.name)).join(', ');
@@ -81,28 +82,36 @@ export default function SetupChecklist({ user }: { user: TeamUser }) {
     localStorage.setItem('azumco.checklist.hidden', signature);
     setHidden(signature);
   };
+  const todo = all.filter((i) => !i.done);
+  const next = todo[0];
+  const pct = Math.round((done / all.length) * 100);
 
+  // One slim bar: progress ring, the next step, expand for the rest.
   return (
-    <section className="mb-6 rounded-3xl border border-brand/40 bg-bg-2 p-5 sm:p-6">
-      <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand"><ListChecks className="h-4.5 w-4.5" /></span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-medium">Get ready <span className="font-serif font-normal italic text-brand">for the first calls</span></h2>
-          <p className="text-sm text-fg-2">{done} of {all.length} done. Everything here ticks itself off.</p>
-        </div>
-        <button type="button" onClick={hide} aria-label="Hide the checklist for now" title="Hide for now" className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-3 hover:text-fg"><X className="h-4 w-4" /></button>
+    <section className="mb-6 rounded-3xl border border-line bg-bg-2">
+      <div className="flex items-center gap-3 px-4 py-3 sm:px-5">
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          <span className="relative flex h-10 w-10 shrink-0 items-center justify-center" aria-hidden="true">
+            <svg viewBox="0 0 36 36" className="absolute inset-0 -rotate-90">
+              <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" className="stroke-bg-3" />
+              <circle cx="18" cy="18" r="15" fill="none" strokeWidth="3" strokeLinecap="round" className="stroke-brand" strokeDasharray={`${(pct / 100) * 94.2} 94.2`} />
+            </svg>
+            <span className="text-[11px] font-medium tabular-nums">{done}/{all.length}</span>
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">Get ready for the first calls</span>
+            <span className="block truncate text-xs text-fg-3">Next: {next.title}</span>
+          </span>
+          <ChevronDown className={cx('h-4 w-4 shrink-0 text-fg-3 transition-transform', open && 'rotate-180')} />
+        </button>
+        <button type="button" onClick={hide} aria-label="Hide the checklist for now" title="Hide for now" className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-fg-3 hover:text-fg"><X className="h-4 w-4" /></button>
       </div>
-      <div className="mt-4"><ProgressBar percent={(done / all.length) * 100} tone="good" label="Checklist progress" /></div>
-      <div className="mt-5 grid gap-x-8 gap-y-4 md:grid-cols-2">
-        <div>
-          <p className="mb-1 px-2 text-[11px] uppercase tracking-[0.16em] text-fg-3">You</p>
-          <ul>{mine.map((i) => <Row key={i.key} item={i} />)}</ul>
+      {open && (
+        <div className="border-t border-line px-2 pb-2 pt-1 sm:px-3">
+          <ul>{todo.map((i) => <Row key={i.key} item={i} />)}</ul>
+          <p className="px-2 pb-1 pt-1 text-xs text-fg-3">{done} done · ticks itself off · disappears when everything is ready</p>
         </div>
-        <div>
-          <p className="mb-1 px-2 text-[11px] uppercase tracking-[0.16em] text-fg-3">The team</p>
-          <ul>{team.map((i) => <Row key={i.key} item={i} />)}</ul>
-        </div>
-      </div>
+      )}
     </section>
   );
 }
