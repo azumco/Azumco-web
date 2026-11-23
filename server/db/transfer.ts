@@ -76,7 +76,9 @@ export async function importRows(target: PgDb, source: SourceRows, opts: { dryRu
   // Ids that exist (or will exist) per tab, for reference checks.
   const known = new Map<TabName, Set<string>>();
   const existingBy = new Map<TabName, Map<string, Row>>();
-  for (const tab of TRANSFER_ORDER) existingBy.set(tab, new Map((await target.all(tab)).map((r) => [r.id, r])));
+  // Always read the database itself (never a cache).
+  const current = await target.loadFresh(TRANSFER_ORDER);
+  TRANSFER_ORDER.forEach((tab, i) => existingBy.set(tab, new Map(current[i].rows.map((r) => [r.id, r]))));
 
   for (const tab of TRANSFER_ORDER) {
     const rows = source[tab] ?? [];

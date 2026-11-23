@@ -121,7 +121,7 @@ export async function startHarness(backend = new MemoryBackend(), config = testC
     },
     snapshot: async (tabs) => {
       if (!PG) return backend.readTabs([...tabs]);
-      return Promise.all((tabs as TabName[]).map(async (t) => [columnsOf(t), ...(await db.all(t)).map((r) => columnsOf(t).map((c) => r[c] ?? ''))]));
+      return Promise.all((tabs as TabName[]).map(async (t) => [columnsOf(t), ...(await db.loadFresh([t]))[0].rows.map((r) => columnsOf(t).map((c) => r[c] ?? ''))]));
     },
     secondDb: async () => (PG ? new PgDb(await testPool(), { now: clock.now }) : new Db(backend, { now: clock.now })),
   };

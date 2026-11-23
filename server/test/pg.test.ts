@@ -163,6 +163,7 @@ d('Import from Sheets', () => {
     await pool.query(`DELETE FROM "audit"`);
     await pool.query(`ALTER TABLE "audit" ENABLE TRIGGER audit_no_update_or_delete`);
     const target = h.db as PgDb;
+    target.invalidate(); // the tables were emptied behind its back
 
     const first = await importRows(target, rows, { dryRun: false });
     expect(first.find((s) => s.tab === 'CallLog')).toMatchObject({ inserted: 2, adjusted: 1 }); // the orphan's lead reference is cleared
