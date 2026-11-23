@@ -21,6 +21,7 @@ import { FinanceService } from '../finance/service.ts';
 import { GoalService } from '../goals/service.ts';
 import { employeeDashboard, founderDashboard } from '../dashboard/service.ts';
 import { checkedMeetLink } from './users.ts';
+import { leadHistory, leadHistoryDetail } from '../leads/history.ts';
 import { audit } from '../audit.ts';
 
 const FOUNDERS = requireRole('admin');
@@ -53,6 +54,14 @@ export function workRoutes(db: Db, places: PlacesService) {
     if (me(res).role === 'employee') await notifyExpiringSoon(db).catch(() => 0);
     const [rows, ctx] = await Promise.all([visibleLeads(db, me(res)), viewContext(db)]);
     res.json({ leads: rows.map((l) => leadView(l, ctx)), serverNow: ctx.now.toISOString() });
+  });
+
+  // A team member's own history (registered before /leads/:id).
+  r.get('/leads/history', async (_req, res) => {
+    res.json({ leads: await leadHistory(db, me(res)), serverNow: db.now().toISOString() });
+  });
+  r.get('/leads/history/:id', async (req, res) => {
+    res.json(await leadHistoryDetail(db, me(res), param(req, 'id')));
   });
 
   r.get('/leads/export.csv', FOUNDERS, async (_req, res) => {
