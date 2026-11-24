@@ -19,7 +19,7 @@ import {
   CALL_OUTCOMES, DEAL_TYPES, LEAD_SOURCES, LEAD_STATUSES, RATINGS, commissionFor, isReachedOutcome,
 } from '../../shared/rules.ts';
 import { assertLeadAccess, effectiveAssignee, isFounder, isLapsed, timerRunning } from './access.ts';
-import { leadOrigin, parseCodes, type CheckStatus } from '../../shared/leadCheck.ts';
+import { MEMBER_CHECK_COOLDOWN_DAYS, leadOrigin, parseCodes, type CheckStatus } from '../../shared/leadCheck.ts';
 
 const HOUR = 3_600_000;
 export const ASSIGN_WINDOWS = [12, 24, 48] as const;
@@ -234,6 +234,7 @@ export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; b
   const calls = ctx.calls.filter((c) => c.leadId === l.id);
   const next = nextAction(l, calls, ctx.bookings.filter((b) => b.leadId === l.id), ctx.now);
   const lastCall = [...calls].sort((a, b) => b.at.localeCompare(a.at))[0];
+  const lastGoogleCall = l.gcLastCallAt || (l.gcStatus && l.gcStatus !== 'not_on_google' ? l.gcCheckedAt : '') || '';
   return {
     id: l.id,
     label: leadLabel(l),
@@ -298,7 +299,12 @@ export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; b
       linked: Boolean(l.gcPlaceId),
       candidates: (l.gcCandidates ?? '').split(',').filter(Boolean).length,
       checkedAt: l.gcCheckedAt || null,
+      checkedById: l.gcCheckedBy ?? '',
+      mapsUrl: l.gcPlaceId ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(l.gcPlaceId)}` : null,
       checkedByName: ctx.users.find((u) => u.id === l.gcCheckedBy)?.name ?? '',
+      /** When this lead last cost a Google call, and when the 7-day rule allows the next one. */
+      lastCallAt: lastGoogleCall || null,
+      nextCheckAt: lastGoogleCall ? new Date(Date.parse(lastGoogleCall) + MEMBER_CHECK_COOLDOWN_DAYS * 86_400_000).toISOString() : null,
     },
   };
 }

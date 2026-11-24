@@ -10,6 +10,7 @@ import type { Row } from '../sheets/schema.ts';
 import { audit } from '../audit.ts';
 import { generateTempPassword, hashPassword } from '../auth/passwords.ts';
 import { HttpError, authOf, requireRole } from '../auth/middleware.ts';
+import { istYearMonth } from '../../shared/time.ts';
 import { releaseLeadsOf } from '../leads/service.ts';
 import { emailInDomain } from '../../shared/email.ts';
 import { MIN_PASSWORD_LENGTH } from '../auth/passwords.ts';
@@ -37,6 +38,8 @@ export const publicUser = (u: Row) => ({
   meetLink: u.meetLink ?? '',
   /** Monthly Google checks for this person; null = the Settings default. */
   leadCheckLimit: u.leadCheckLimit ? Number(u.leadCheckLimit) : null,
+  /** Google checks used this IST month. */
+  leadChecksUsed: u.leadCheckMonth === istYearMonth() ? Number(u.leadCheckUsed) || 0 : 0,
   canReceiveLeads: bool(u.canReceiveLeads),
   calendarColor: u.calendarColor || 'neutral',
   updatedAt: u.updatedAt,

@@ -15,7 +15,7 @@ import { createApp } from '../app.ts';
 import { bootstrap } from '../bootstrap.ts';
 import { Db } from '../sheets/db.ts';
 import { MemoryBackend } from '../sheets/backend.ts';
-import type { CheckPlace, PlacesClient, PlaceResult } from '../places/client.ts';
+import { PlacesHttpError, type CheckPlace, type PlacesClient, type PlaceResult } from '../places/client.ts';
 import { istDate } from '../../shared/time.ts';
 import { addDays } from '../../shared/slots.ts';
 
@@ -48,6 +48,7 @@ const CHECKS: Record<string, CheckPlace[]> = {
 
 const mockPlaces: PlacesClient = {
   async checkSearch(q, limit) {
+    if (q.startsWith('Demo Offline')) throw new PlacesHttpError(503, 'demo outage');
     const key = Object.keys(CHECKS).find((k) => q.startsWith(k));
     return (key ? CHECKS[key] : []).slice(0, limit);
   },
@@ -89,6 +90,7 @@ async function main() {
       { name: 'Second Founder', email: 'demo.founder2@azumco.com', role: 'admin' },
       { name: 'Third Founder', email: 'demo.founder3@azumco.com', role: 'admin' },
       { name: 'Demo Caller', email: DEMO_ACCOUNTS.employee.email, role: 'employee' },
+      { name: 'Second Caller', email: 'demo.staff2@azumco.com', role: 'employee' },
     ]),
   });
   const db = new Db(new MemoryBackend());
@@ -132,6 +134,7 @@ async function main() {
   };
   const f2 = await signIn('demo.founder2@azumco.com', 'demo-Founder2-pass1');
   const staff = await signIn(DEMO_ACCOUNTS.employee.email, DEMO_ACCOUNTS.employee.password);
+  await signIn('demo.staff2@azumco.com', 'demo-Staff2-pass1');
 
   const today = istDate();
   const days = [1, 2, 3].map((n) => addDays(today, n));
@@ -153,6 +156,11 @@ async function main() {
   await staff.c.req('POST', '/api/leads', { businessName: 'Demo Iron Gym', category: 'Gym / Fitness', area: 'New Market', city: 'Bhopal', phone: '98765 00021', websiteOrInstagram: 'demo-iron.example' });
   await staff.c.req('POST', '/api/leads', { businessName: 'Demo Brew Cafe', category: 'Restaurant / Café', area: 'Vijay Nagar', city: 'Indore', phone: '98765 00022' });
   await staff.c.req('POST', '/api/leads', { businessName: 'Demo Nowhere Bakery', category: 'Bakery', city: 'Bhopal', phone: '98765 00023' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Salon Studio', category: 'Salon / Spa', city: 'Indore', phone: '97000 44100' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Salon & Spa', category: 'Salon / Spa', city: 'Indore' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Offline Tailor', category: 'Boutique', city: 'Bhopal', phone: '98765 00026' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Lotus Sweets', category: 'Bakery', city: 'Bhopal', phone: '98765 00027' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Iron Gym Annex', category: 'Gym / Fitness', city: 'Bhopal', phone: '98765 00028' });
 
   console.log(`DEMO READY ${base}/team  founder ${DEMO_ACCOUNTS.founder.email}  employee ${DEMO_ACCOUNTS.employee.email} (demo passwords in server/dev/demo.ts)`);
 }

@@ -85,7 +85,13 @@ export interface Lead {
     linked: boolean;
     candidates: number;
     checkedAt: string | null;
+    checkedById: string;
     checkedByName: string;
+    /** When the lead last cost a Google call, and when the 7-day rule allows the next. */
+    lastCallAt: string | null;
+    nextCheckAt: string | null;
+    /** Google Maps link built from the stored place ID (no Google content). */
+    mapsUrl: string | null;
   };
 }
 

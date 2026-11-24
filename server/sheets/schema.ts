@@ -16,6 +16,8 @@ export const TABS = {
     'jobTitle', 'canReceiveLeads', 'calendarColor', 'meetLink',
     // Google checks this person may run per month; '' = the Settings default.
     'leadCheckLimit',
+    // This person's Google checks this IST month (reset when the month changes).
+    'leadCheckMonth', 'leadCheckUsed',
   ],
   Sessions: ['tokenHash', 'userId', 'sessionVersion', 'csrfToken', 'expiresAt', 'ip', 'userAgent'],
   Settings: ['key', 'value'],
@@ -36,6 +38,8 @@ export const TABS = {
     // or 'find_clients'. gc*: "Check against Google" — the place ID, status,
     // per-field RESULT CODES (never Google's values), candidate place IDs, who and when.
     'area', 'origin', 'gcStatus', 'gcPlaceId', 'gcFields', 'gcCandidates', 'gcCheckedAt', 'gcCheckedBy',
+    // When this lead last cost a Google call (the 7-day rule).
+    'gcLastCallAt',
   ],
   CallLog: ['leadId', 'at', 'userId', 'outcome', 'note'],
   /** One row per expired assignment. The row id is `${leadId}:${expiresAt}`, which makes the sweep idempotent. */

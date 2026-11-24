@@ -21,7 +21,7 @@ export type ColType = 't' | 'r' | 'ts' | 'd' | 'tm' | 'b' | 'i' | 'n' | 'j';
 const SPEC: Record<TabName, Record<string, ColType>> = {
   Users: {
     email: 't', name: 't', role: 't', active: 'b', passwordHash: 't', mustChangePassword: 'b', failedAttempts: 'i', lockedUntil: 'ts',
-    sessionVersion: 'i', lastLoginAt: 'ts', jobTitle: 't', canReceiveLeads: 'b', calendarColor: 't', meetLink: 't', leadCheckLimit: 't',
+    sessionVersion: 'i', lastLoginAt: 'ts', jobTitle: 't', canReceiveLeads: 'b', calendarColor: 't', meetLink: 't', leadCheckLimit: 't', leadCheckMonth: 't', leadCheckUsed: 'i',
   },
   Sessions: { tokenHash: 't', userId: 'r', sessionVersion: 'i', csrfToken: 't', expiresAt: 'ts', ip: 't', userAgent: 't' },
   Settings: { key: 't', value: 't' },
@@ -33,7 +33,7 @@ const SPEC: Record<TabName, Record<string, ColType>> = {
     assignedTo: 'r', assignedAt: 'ts', expiresAt: 'ts', expiryApplies: 'b', timerStoppedAt: 'ts', contacted: 'b', firstCallDate: 'd',
     callOutcome: 't', rating: 't', decisionMaker: 't', need: 't', nextStep: 't', followUpDate: 'd', discoveryCallDate: 'd',
     callHappened: 'b', status: 't', dealType: 't', dealValue: 'n', clientPaid: 'b', commissionPaid: 'n', commissionPaidAt: 'ts', notes: 't',
-    area: 't', origin: 't', gcStatus: 't', gcPlaceId: 't', gcFields: 't', gcCandidates: 't', gcCheckedAt: 'ts', gcCheckedBy: 't',
+    area: 't', origin: 't', gcStatus: 't', gcPlaceId: 't', gcFields: 't', gcCandidates: 't', gcCheckedAt: 'ts', gcCheckedBy: 't', gcLastCallAt: 'ts',
   },
   CallLog: { leadId: 'r', at: 'ts', userId: 'r', outcome: 't', note: 't' },
   Expirations: { leadId: 'r', assigneeId: 't', assignedAt: 'ts', expiresAt: 'ts' },

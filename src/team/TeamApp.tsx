@@ -26,7 +26,7 @@ import Reports from './pages/Reports';
 import Leads from './pages/Leads';
 import LeadDetail from './pages/LeadDetail';
 import LeadCheck from './pages/LeadCheck';
-import MemberLeadCheck from './pages/MemberLeadCheck';
+import MemberLeadCheck, { MemberCheckScreen } from './pages/MemberLeadCheck';
 import FindClients from './pages/FindClients';
 import Calendar from './pages/Calendar';
 import Book from './pages/Book';
@@ -132,7 +132,7 @@ function founderPage(path: string, user: TeamUser, unread: number, onSignOut: ()
 
 function memberPage(path: string, user: TeamUser): ReactNode {
   const check = /^\/team\/leads\/([^/]+)\/google$/.exec(path);
-  if (check) return <LeadCheck id={check[1]} user={user} />;
+  if (check) return <MemberCheckScreen key={check[1]} id={check[1]} user={user} />;
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
   if (lead) return <LeadDetail id={lead[1]} user={user} />;
   switch (path) {
@@ -306,7 +306,7 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
       </main>
 
       {/* <768: bottom tab bar */}
-      <nav aria-label="Tabs" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
+      {!(!founder && /^\/team\/leads\/[^/]+\/google$/.test(path)) && <nav aria-label="Tabs" className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-bg/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
         <div className="grid" style={{ gridTemplateColumns: `repeat(${tabs.length}, 1fr)` }}>
           {tabs.map((t) => (
             <a key={t.path} {...link(t.path)} aria-current={tabActive(t.path) ? 'page' : undefined} className={cx('flex min-h-16 flex-col items-center justify-center gap-1 text-[11px]', tabActive(t.path) ? 'text-brand' : 'text-fg-2')}>
@@ -315,7 +315,7 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
             </a>
           ))}
         </div>
-      </nav>
+      </nav>}
     </div>
   );
 }

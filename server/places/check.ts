@@ -83,14 +83,15 @@ const LEAD_COLUMN: Record<CheckField, string> = {
   businessName: 'businessName', phone: 'phone', area: 'area', city: 'city', website: 'websiteOrInstagram', category: 'category',
 };
 
-/** Audit actions that cost one Google call. */
-const BILLABLE = new Set(['lead.google_check', 'lead.google_view']);
 const DAY = 86_400_000;
 
-export class LeadCheckService {
-  /** One billable check at a time per team member, so two quick taps cannot overspend the allowance. */
-  private memberQueue = new Map<string, Promise<unknown>>();
+/** The first day of the next IST month, as an ISO date ("2026-12-01"). */
+export function nextMonthStart(now: Date): string {
+  const [y, m] = istYearMonth(now).split('-').map(Number);
+  return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+}
 
+export class LeadCheckService {
   constructor(
     private readonly db: Db,
     private readonly places: PlacesService,
@@ -141,64 +142,97 @@ export class LeadCheckService {
     return lead;
   }
 
-  /** Billable checks: this person's in this IST month, and the latest on a lead (by anyone). */
-  private async checkHistory(actorId: string, leadId?: string) {
-    const month = istYearMonth(this.db.now());
-    let used = 0;
-    let lastOnLead = '';
-    for (const a of await this.db.all('Audit')) {
-      if (!BILLABLE.has(a.action)) continue;
-      let calls = 0;
-      try {
-        calls = Number((JSON.parse(a.after || '{}') as { calls?: number }).calls ?? 0);
-      } catch {
-        calls = 0;
-      }
-      if (calls < 1) continue;
-      if (a.actorId === actorId && istYearMonth(new Date(a.at)) === month) used++;
-      if (leadId && a.entityId === leadId && a.at > lastOnLead) lastOnLead = a.at;
-    }
-    return { used, lastOnLead };
-  }
-
   /** A team member's monthly allowance: their own limit, else the Settings default. */
-  private async memberLimit(actorId: string): Promise<number> {
-    const me = (await this.db.all('Users')).find((u) => u.id === actorId);
+  private async memberLimit(me: Row | undefined): Promise<number> {
     const own = me?.leadCheckLimit ? Number(me.leadCheckLimit) : NaN;
     return Number.isInteger(own) && own >= 0 ? own : (await getSettings(this.db)).memberLeadChecksPerMonth;
   }
 
-  /** Team members: once per lead per week, within their monthly allowance. Founders: no extra limit. */
-  private async billable<T>(actor: SessionUser, lead: Row, run: () => Promise<T>): Promise<T> {
-    if (isUnlimitedChecker(actor)) return run();
-    const prev = this.memberQueue.get(actor.id) ?? Promise.resolve();
-    const task = prev.catch(() => undefined).then(async () => {
-      const { used, lastOnLead } = await this.checkHistory(actor.id, lead.id);
-      if (lastOnLead) {
-        const next = Date.parse(lastOnLead) + MEMBER_CHECK_COOLDOWN_DAYS * DAY;
-        if (this.db.now().getTime() < next) {
-          throw new HttpError(429, `This lead was checked on ${formatDate(lastOnLead)}. It can be checked again from ${formatDate(new Date(next).toISOString())}.`, 'CHECKED_RECENTLY');
-        }
-      }
-      const limit = await this.memberLimit(actor.id);
-      if (used >= limit) throw new HttpError(429, `You've used all ${limit} Google checks for this month. Ask a founder for more.`, 'MEMBER_CHECK_LIMIT');
-      return run();
+  /** This person's checks used this IST month (the stored counter resets with the month). */
+  private usedThisMonth(me: Row | undefined): number {
+    return me && me.leadCheckMonth === istYearMonth(this.db.now()) ? Math.max(0, Number(me.leadCheckUsed) || 0) : 0;
+  }
+
+  /** Reserve one of a team member's checks (atomic with the read), or refuse at the limit. */
+  private async reserve(actor: SessionUser): Promise<void> {
+    await this.db.exclusive(async () => {
+      const [users] = await this.db.loadFresh(['Users']);
+      const me = users.rows.find((u) => u.id === actor.id);
+      if (!me) throw new HttpError(401, 'Please sign in.');
+      const used = this.usedThisMonth(me);
+      const limit = await this.memberLimit(me);
+      if (used >= limit) throw new HttpError(429, `You've used all ${limit} of your Google checks this month. They reset on ${formatDate(nextMonthStart(this.db.now()))}.`, 'MEMBER_CHECK_LIMIT');
+      await this.db.updateUnqueued('Users', me.id, { leadCheckMonth: istYearMonth(this.db.now()), leadCheckUsed: String(used + 1) }, 'system');
     });
-    this.memberQueue.set(actor.id, task);
+  }
+
+  /** Give a reserved check back (the Google call failed or was refused). */
+  private async refund(actor: SessionUser): Promise<void> {
+    await this.db.exclusive(async () => {
+      const [users] = await this.db.loadFresh(['Users']);
+      const me = users.rows.find((u) => u.id === actor.id);
+      const used = this.usedThisMonth(me);
+      if (me && used > 0) await this.db.updateUnqueued('Users', me.id, { leadCheckUsed: String(used - 1) }, 'system');
+    });
+  }
+
+  /** When the 7-day rule lets this lead be checked again (null = now). */
+  private nextAllowed(lead: Row): number | null {
+    const last = lead.gcLastCallAt || (lead.gcStatus && lead.gcStatus !== 'not_on_google' ? lead.gcCheckedAt : '');
+    if (!last) return null;
+    const next = Date.parse(last) + MEMBER_CHECK_COOLDOWN_DAYS * DAY;
+    return this.db.now().getTime() < next ? next : null;
+  }
+
+  /**
+   * Everything that costs a Google call goes through here, for everyone:
+   *  1. the 7-day rule (whoever checked last) — except an edited search right
+   *     after "pick a match" / "not on Google", which the check screens offer;
+   *  2. the pause switch, before anything is reserved or sent;
+   *  3. team members: one check reserved from their monthly allowance, given
+   *     back if the call fails;
+   *  4. PlacesService.paidCall: the global monthly cap (atomic) and pause again.
+   */
+  private async billable<T>(actor: SessionUser, lead: Row, run: () => Promise<T>, opts: { editedSearch?: boolean } = {}): Promise<T> {
+    const next = opts.editedSearch ? null : this.nextAllowed(lead);
+    if (next) {
+      const last = lead.gcLastCallAt || lead.gcCheckedAt;
+      throw new HttpError(429, `This lead was checked on ${formatDate(last)}. You can check it again from ${formatDate(new Date(next).toISOString())}.`, 'CHECKED_RECENTLY');
+    }
+    if ((await getSettings(this.db, { fresh: true })).placesPaused) throw new HttpError(423, 'Google checks are paused by the super admin.', 'PLACES_PAUSED');
+    const member = !isUnlimitedChecker(actor);
+    if (member) await this.reserve(actor);
     try {
-      return await task;
-    } finally {
-      if (this.memberQueue.get(actor.id) === task) this.memberQueue.delete(actor.id);
+      return await run();
+    } catch (e) {
+      if (member) await this.refund(actor).catch(() => undefined);
+      throw e;
     }
   }
 
-  /** What the person can still do this month (bulk bar and check screens). */
+  /** What the person can still do this month (allowance line, buttons). */
   async allowance(actor: SessionUser) {
     const usage = await placesUsage(this.db);
     const google = { used: usage.used, cap: usage.cap, remaining: usage.remaining, paused: usage.paused };
-    if (isUnlimitedChecker(actor)) return { unlimited: true, google, mine: null, cooldownDays: MEMBER_CHECK_COOLDOWN_DAYS };
-    const [{ used }, limit] = await Promise.all([this.checkHistory(actor.id), this.memberLimit(actor.id)]);
-    return { unlimited: false, google, mine: { used, limit, remaining: Math.max(0, limit - used) }, cooldownDays: MEMBER_CHECK_COOLDOWN_DAYS };
+    const resetsOn = nextMonthStart(this.db.now());
+    if (isUnlimitedChecker(actor)) return { unlimited: true, google, mine: null, cooldownDays: MEMBER_CHECK_COOLDOWN_DAYS, resetsOn };
+    const me = (await this.db.loadFresh(['Users']))[0].rows.find((u) => u.id === actor.id);
+    const used = this.usedThisMonth(me);
+    const limit = await this.memberLimit(me);
+    return { unlimited: false, google, mine: { used, limit, remaining: Math.max(0, limit - used) }, cooldownDays: MEMBER_CHECK_COOLDOWN_DAYS, resetsOn };
+  }
+
+  /** Founders set a team member's own monthly allowance (null = the Settings default). Audited. */
+  async setMemberLimit(actor: SessionUser, userId: string, limit: number | null, ip?: string) {
+    return this.db.exclusive(async () => {
+      const [users] = await this.db.loadFresh(['Users']);
+      const u = users.rows.find((x) => x.id === userId);
+      if (!u) throw new HttpError(404, 'Team member not found.');
+      if (u.role !== 'employee') throw new HttpError(400, 'Founders have no check allowance.');
+      const { before, after } = await this.db.updateUnqueued('Users', u.id, { leadCheckLimit: limit === null ? '' : String(limit) }, actor.id);
+      await auditUnqueued(this.db, [{ actorId: actor.id, action: 'users.lead_check_limit', entity: 'Users', entityId: u.id, before: { leadCheckLimit: before.leadCheckLimit ?? '' }, after: { leadCheckLimit: after.leadCheckLimit ?? '' }, ip }]);
+      return { userId: u.id, leadCheckLimit: limit, effective: await this.memberLimit(after) };
+    });
   }
 
   private client() {
@@ -207,8 +241,9 @@ export class LeadCheckService {
     return c as Required<typeof c>;
   }
 
-  private stamp(actor: SessionUser) {
-    return { gcCheckedAt: this.db.now().toISOString(), gcCheckedBy: actor.id };
+  private stamp(actor: SessionUser, billed = false) {
+    const now = this.db.now().toISOString();
+    return { gcCheckedAt: now, gcCheckedBy: actor.id, ...(billed ? { gcLastCallAt: now } : {}) };
   }
 
   private async save(actor: SessionUser, lead: Row, patch: Record<string, string>, action: string, after: Record<string, unknown>, ip?: string) {
@@ -227,7 +262,7 @@ export class LeadCheckService {
   private async link(actor: SessionUser, lead: Row, place: PlaceView, action: string, calls: number, ip?: string) {
     const codes = compareLead(ourSide(lead), place);
     const status = overallStatus(codes);
-    await this.save(actor, lead, { gcStatus: status, gcPlaceId: place.placeId, gcFields: JSON.stringify(codes), gcCandidates: '', ...this.stamp(actor) }, action, { status, fields: codes, calls }, ip);
+    await this.save(actor, lead, { gcStatus: status, gcPlaceId: place.placeId, gcFields: JSON.stringify(codes), gcCandidates: '', ...this.stamp(actor, calls > 0) }, action, { status, fields: codes, calls }, ip);
     return this.result(lead, status, { fields: codes, google: this.offer(lead.id, place), calls });
   }
 
@@ -240,7 +275,9 @@ export class LeadCheckService {
     const query = input.query || checkQuery(ours);
     if (!query) throw new HttpError(400, 'Add the business name before checking it against Google.');
     const client = this.client();
-    return this.billable(actor, lead, () => this.search(actor, lead, ours, query, client, ip));
+    // An edited search right after "pick a match" / "not on Google" is what those screens offer.
+    const editedSearch = Boolean(input.query) && ['pick', 'not_found', 'not_on_google'].includes(lead.gcStatus ?? '');
+    return this.billable(actor, lead, () => this.search(actor, lead, ours, query, client, ip), { editedSearch });
   }
 
   private async search(actor: SessionUser, lead: Row, ours: ReturnType<typeof ourSide>, query: string, client: ReturnType<LeadCheckService['client']>, ip?: string) {
@@ -250,10 +287,10 @@ export class LeadCheckService {
     if (decision.kind === 'match') return this.link(actor, lead, found[decision.index], 'lead.google_check', 1, ip);
     if (decision.kind === 'pick') {
       const picks = decision.indexes.map((i) => found[i]);
-      await this.save(actor, lead, { gcStatus: 'pick', gcPlaceId: '', gcFields: '', gcCandidates: picks.map((p) => p.placeId).join(','), ...this.stamp(actor) }, 'lead.google_check', { status: 'pick', candidates: picks.length, calls: 1 }, ip);
+      await this.save(actor, lead, { gcStatus: 'pick', gcPlaceId: '', gcFields: '', gcCandidates: picks.map((p) => p.placeId).join(','), ...this.stamp(actor, true) }, 'lead.google_check', { status: 'pick', candidates: picks.length, calls: 1 }, ip);
       return this.result(lead, 'pick', { candidates: picks.map((p) => this.offer(lead.id, p)), query, calls: 1 });
     }
-    await this.save(actor, lead, { gcStatus: 'not_found', gcPlaceId: '', gcFields: '', gcCandidates: '', ...this.stamp(actor) }, 'lead.google_check', { status: 'not_found', calls: 1 }, ip);
+    await this.save(actor, lead, { gcStatus: 'not_found', gcPlaceId: '', gcFields: '', gcCandidates: '', ...this.stamp(actor, true) }, 'lead.google_check', { status: 'not_found', calls: 1 }, ip);
     return this.result(lead, 'not_found', { query, calls: 1 });
   }
 
@@ -281,7 +318,7 @@ export class LeadCheckService {
     const codes = compareLead(ourSide(lead), place);
     let status: CheckStatus = overallStatus(codes);
     if (status === 'needs_review' && lead.gcStatus === 'reviewed' && JSON.stringify(codes) === JSON.stringify(JSON.parse(lead.gcFields || 'null'))) status = 'reviewed';
-    await this.save(actor, lead, { gcStatus: status, gcFields: JSON.stringify(codes), ...this.stamp(actor) }, 'lead.google_view', { status, fields: codes, calls: 1 }, ip);
+    await this.save(actor, lead, { gcStatus: status, gcFields: JSON.stringify(codes), ...this.stamp(actor, true) }, 'lead.google_view', { status, fields: codes, calls: 1 }, ip);
     return this.result(lead, status, { fields: codes, google: this.offer(lead.id, place), calls: 1 });
   }
 

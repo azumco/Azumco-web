@@ -12,7 +12,7 @@ import { Button, ChipGroup, ErrorText, Field, Modal, SearchableSelect } from '..
 const SOURCES = LEAD_SOURCES.filter((s) => s !== 'Google Places');
 const BLANK = { businessName: '', category: '', contactPerson: '', phone: '', area: '', city: '', websiteOrInstagram: '', source: '', serviceInterest: '' };
 
-export default function AddOwnLead({ className = '' }: { className?: string }) {
+export default function AddOwnLead({ className = '', primary = false }: { className?: string; primary?: boolean }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(BLANK);
   const { busy, error, run } = useAction();
@@ -30,7 +30,7 @@ export default function AddOwnLead({ className = '' }: { className?: string }) {
 
   return (
     <>
-      <Button variant="secondary" size="sm" className={className} onClick={() => setOpen(true)}>
+      <Button variant={primary ? 'primary' : 'secondary'} size={primary ? 'md' : 'sm'} className={className} onClick={() => setOpen(true)}>
         <Plus className="h-4 w-4" /> Add a lead
       </Button>
       <Modal title="Add a" accent="lead" subtitle="Found a business yourself? It's yours to call. The founders are told." open={open} onClose={() => setOpen(false)} wide>

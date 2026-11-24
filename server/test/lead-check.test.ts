@@ -298,11 +298,18 @@ describe('Checks: outcomes, calls and storage', () => {
     expect(await t.used()).toBe(2);
   });
 
-  it('"View" a past check is one live call; editing a compared field resets the status', async () => {
+  it('"View" a past check is one live call (after the 7-day rule); editing a compared field resets the status', async () => {
     const t = await setup();
     const id = await t.add(t.admin, { businessName: 'Qvx Iron Gym', area: 'Qvx Market', city: 'Bhopal', phone: '99111 00001', websiteOrInstagram: 'qvx-iron.example', category: 'Gym' });
     await t.admin.req('POST', `/api/leads/${id}/google-check`, {});
     t.places.calls = [];
+    // The 7-day rule applies to founders too.
+    const early = await t.admin.req('POST', `/api/leads/${id}/google-check/view`, {});
+    expect(early.status).toBe(429);
+    expect(early.body.code).toBe('CHECKED_RECENTLY');
+    expect(t.places.calls).toHaveLength(0);
+    t.h.clock.advance(7 * 86_400_000 + 60_000);
+    await relogin(t);
     const v = await t.admin.req('POST', `/api/leads/${id}/google-check/view`, {});
     expect(v.status).toBe(200);
     expect(v.body).toMatchObject({ status: 'matches', calls: 1 });
@@ -375,7 +382,9 @@ describe('No Google values are stored, except confirmed and saved ones', () => {
       const glow = await t.add(t.admin, { businessName: 'Qvx Glow Salon', city: 'Bhopal', category: 'Salon' });
       const brew = await t.add(t.admin, { businessName: 'Qvx Brew Cafe', city: 'Indore' });
       await t.admin.req('POST', `/api/leads/${iron}/google-check`, {});
-      await t.admin.req('POST', `/api/leads/${iron}/google-check/view`, {});
+      t.h.clock.advance(7 * 86_400_000 + 60_000);
+      await relogin(t);
+      expect((await t.admin.req('POST', `/api/leads/${iron}/google-check/view`, {})).status).toBe(200);
       const g = await t.admin.req('POST', `/api/leads/${glow}/google-check`, {});
       // Only Glow's phone is confirmed and saved.
       await t.admin.req('POST', `/api/leads/${glow}/google-check/apply`, { token: g.body.google.token, confirmed: true, choices: { phone: 'google', businessName: 'mine' } });
@@ -404,5 +413,142 @@ describe('No Google values are stored, except confirmed and saved ones', () => {
     } finally {
       process.env.NODE_ENV = prevEnv;
     }
+  });
+});
+
+
+// ─── Team member side: rules enforced on the server ─────────────────────────
+
+describe('Team members: who, the 7-day rule and the monthly allowance', () => {
+  const ids = async (t: Awaited<ReturnType<typeof setup>>) => {
+    const users = (await t.owner.req('GET', '/api/users')).body.users as { id: string; email: string; updatedAt: string }[];
+    return { staffId: users.find((u) => u.email === EMPLOYEE_EMAIL)!.id, users };
+  };
+  const allowance = async (c: Client) => (await c.req('GET', '/api/google-check/allowance')).body;
+
+  it('permissions: not their lead → 403, Find clients → refused, founder-given → read-only, allowances → founders only', async () => {
+    const t = await setup();
+    const { staffId } = await ids(t);
+    const given = await t.add(t.admin, { businessName: 'Qvx Iron Gym', city: 'Bhopal', assignTo: staffId });
+    await t.admin.req('POST', `/api/leads/${given}/google-check`, {});
+    // Read-only: the member sees the founder's result, every action is refused.
+    const seen = await t.lead(given, t.staff);
+    expect(seen.googleCheck).toMatchObject({ status: 'needs_review', checkedByName: 'Admin One' });
+    expect(seen.addedBy).not.toBe(staffId);
+    for (const path of ['', '/view', '/not-on-google', '/apply', '/pick']) {
+      const r = await t.staff.req('POST', `/api/leads/${given}/google-check${path}`, path === '/apply' || path === '/pick' ? { token: 'x'.repeat(20) } : {});
+      expect(r.status, path).toBe(403);
+    }
+    // Find clients leads are never checked.
+    await t.h.db.insert('Leads', { placeId: 'ChIJ_fc_1', category: 'Gym', city: 'Bhopal', source: 'Google Places', origin: 'find_clients', addedBy: staffId, assignedTo: staffId, status: 'New' }, 'test');
+    const fc = ((await t.staff.req('GET', '/api/leads')).body.leads as { id: string; origin: string }[]).find((l) => l.origin === 'find_clients')!;
+    expect((await t.staff.req('POST', `/api/leads/${fc.id}/google-check`, {})).body.code).toBe('FIND_CLIENTS_LEAD');
+    // Members cannot change allowances, by either route.
+    expect((await t.staff.req('PUT', `/api/team/${staffId}/lead-check-limit`, { limit: 500 })).status).toBe(403);
+    expect((await t.staff.req('PATCH', `/api/users/${staffId}`, { leadCheckLimit: 500 })).status).toBe(403);
+    expect((await allowance(t.staff)).mine.limit).toBe(100);
+    expect(t.places.calls).toHaveLength(1);
+  });
+
+  it('7-day rule across people: a founder checks, the member who added it is blocked with the right date', async () => {
+    const t = await setup();
+    const mine = await t.add(t.staff, { businessName: 'Qvx Iron Gym', city: 'Bhopal' });
+    expect((await t.admin.req('POST', `/api/leads/${mine}/google-check`, {})).status).toBe(200); // 21 Nov 10:00 IST
+    const r = await t.staff.req('POST', `/api/leads/${mine}/google-check`, {});
+    expect(r.status).toBe(429);
+    expect(r.body.code).toBe('CHECKED_RECENTLY');
+    expect(r.body.error).toContain('21 Nov 2026');
+    expect(r.body.error).toContain('28 Nov 2026');
+    expect((await t.lead(mine, t.staff)).googleCheck.nextCheckAt).toBe('2026-11-28T04:30:00.000Z');
+    expect((await allowance(t.staff)).mine.used).toBe(0);
+    expect(t.places.calls).toHaveLength(1);
+    // A day before: still blocked. After 7 days: allowed.
+    t.h.clock.advance(6 * 86_400_000);
+    await relogin(t);
+    expect((await t.staff.req('POST', `/api/leads/${mine}/google-check`, {})).status).toBe(429);
+    t.h.clock.advance(86_400_000 + 1000);
+    await relogin(t);
+    expect((await t.staff.req('POST', `/api/leads/${mine}/google-check`, {})).status).toBe(200);
+  });
+
+  it('allowance: exactly 1 per check or fresh lookup, 0 for pick/save/keep/mark, failures free, blocked at 0, IST monthly reset, founder override audited, pause stops everyone', async () => {
+    const t = await setup();
+    const { staffId } = await ids(t);
+    const iron = await t.add(t.staff, { businessName: 'Qvx Iron Gym', city: 'Bhopal' });
+    const glow = await t.add(t.staff, { businessName: 'Qvx Glow Salon', city: 'Bhopal' });
+    const brew = await t.add(t.staff, { businessName: 'Qvx Brew Cafe', city: 'Indore' });
+    const none = await t.add(t.staff, { businessName: 'Qvx Nowhere Dental', city: 'Bhopal' });
+    const left = async () => (await allowance(t.staff)).mine.remaining as number;
+    expect(await left()).toBe(100);
+
+    // A check: exactly 1.
+    const g = await t.staff.req('POST', `/api/leads/${glow}/google-check`, {});
+    expect(g.body.status).toBe('needs_review');
+    expect(await left()).toBe(99);
+    // Keep mine and saving (confirmed): 0.
+    await t.staff.req('POST', `/api/leads/${glow}/google-check/apply`, { token: g.body.google.token, confirmed: false, choices: { businessName: 'mine' } });
+    await t.staff.req('POST', `/api/leads/${glow}/google-check/apply`, { token: g.body.google.token, confirmed: true, choices: { phone: 'google' } });
+    expect(await left()).toBe(99);
+    // Pick among shown results: 0.
+    const b = await t.staff.req('POST', `/api/leads/${brew}/google-check`, {});
+    expect(b.body.status).toBe('pick');
+    expect(await left()).toBe(98);
+    expect((await t.staff.req('POST', `/api/leads/${brew}/google-check/pick`, { token: b.body.candidates[0].token })).body.calls).toBe(0);
+    expect(await left()).toBe(98);
+    // Not found, an edited search right away (allowed, costs 1), then "Mark as not on Google": 0.
+    expect((await t.staff.req('POST', `/api/leads/${none}/google-check`, {})).body.status).toBe('not_found');
+    expect((await t.staff.req('POST', `/api/leads/${none}/google-check`, { query: 'Qvx Nowhere Dental Clinic, Bhopal' })).status).toBe(200);
+    expect(await left()).toBe(96);
+    await t.staff.req('POST', `/api/leads/${none}/google-check/not-on-google`, {});
+    expect(await left()).toBe(96);
+
+    // Failed Google calls cost the member nothing (unbilled 4xx, and a 5xx).
+    for (const code of [400, 500]) {
+      t.places.failWith = code;
+      expect((await t.staff.req('POST', `/api/leads/${iron}/google-check`, {})).status).toBe(502);
+    }
+    t.places.failWith = null;
+    expect(await left()).toBe(96);
+    expect((await t.lead(iron, t.staff)).googleCheck.status).toBe('');
+
+    // A fresh lookup on a checked lead: exactly 1 (after the 7-day rule).
+    t.h.clock.advance(7 * 86_400_000 + 60_000); // 28 Nov
+    await relogin(t);
+    expect((await t.staff.req('POST', `/api/leads/${glow}/google-check/view`, {})).body.calls).toBe(1);
+    expect(await left()).toBe(95);
+
+    // Founder override (audited), blocked at 0 with no outbound call.
+    const before = t.places.calls.length;
+    expect((await t.admin.req('PUT', `/api/team/${staffId}/lead-check-limit`, { limit: 5 })).body).toMatchObject({ leadCheckLimit: 5, effective: 5 });
+    expect(await left()).toBe(0);
+    const blocked = await t.staff.req('POST', `/api/leads/${iron}/google-check`, {});
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.code).toBe('MEMBER_CHECK_LIMIT');
+    expect(blocked.body.error).toContain('1 Dec 2026');
+    expect(t.places.calls.length).toBe(before);
+    const audit = (await t.owner.req('GET', '/api/audit')).body.entries as { action: string; entityId: string; actor: string }[];
+    expect(audit.find((e) => e.action === 'users.lead_check_limit' && e.entityId === staffId)?.actor).toBe('Admin One');
+
+    // Monthly reset at midnight IST on the 1st: 30 Nov 18:30 UTC = 1 Dec 00:00 IST.
+    t.h.clock.set('2026-11-30T18:29:00.000Z');
+    await relogin(t);
+    expect(await left()).toBe(0);
+    t.h.clock.set('2026-11-30T18:31:00.000Z');
+    await relogin(t);
+    expect((await allowance(t.staff)).mine).toMatchObject({ used: 0, limit: 5, remaining: 5 });
+    expect((await t.staff.req('POST', `/api/leads/${iron}/google-check`, {})).status).toBe(200);
+    expect(await left()).toBe(4);
+
+    // Pause: everyone refused, zero outbound calls, nothing used.
+    await t.owner.req('PUT', '/api/settings', { placesPaused: true });
+    const calls = t.places.calls.length;
+    const used = await t.used();
+    expect((await t.staff.req('POST', `/api/leads/${brew}/google-check`, {})).body.code).toBe('PLACES_PAUSED');
+    const founderLead = await t.add(t.admin, { businessName: 'Qvx Iron Gym Two', city: 'Bhopal' });
+    expect((await t.admin.req('POST', `/api/leads/${founderLead}/google-check`, {})).body.code).toBe('PLACES_PAUSED');
+    expect(t.places.calls.length).toBe(calls);
+    expect(await t.used()).toBe(used);
+    expect(await left()).toBe(4);
+    expect((await allowance(t.staff)).google.paused).toBe(true);
   });
 });
