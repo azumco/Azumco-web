@@ -15,7 +15,7 @@ import { createApp } from '../app.ts';
 import { bootstrap } from '../bootstrap.ts';
 import { Db } from '../sheets/db.ts';
 import { MemoryBackend } from '../sheets/backend.ts';
-import type { PlacesClient, PlaceResult } from '../places/client.ts';
+import type { CheckPlace, PlacesClient, PlaceResult } from '../places/client.ts';
 import { istDate } from '../../shared/time.ts';
 import { addDays } from '../../shared/slots.ts';
 
@@ -34,7 +34,28 @@ const FAKE: PlaceResult[] = Array.from({ length: 20 }, (_, i) => ({
   website: i % 3 ? `https://example.com/demo-${i}` : '',
 }));
 
+/** Lead check scenarios, chosen by the start of the search text. */
+const cp = (o: Partial<CheckPlace> & { placeId: string; name: string }): CheckPlace => ({ address: '', phone: '', website: '', area: '', city: '', types: [], primaryType: '', rating: null, ratingCount: null, ...o });
+const CHECKS: Record<string, CheckPlace[]> = {
+  'Demo Iron Gym': [cp({ placeId: 'demo_chk_iron', name: 'Demo Iron Gym', phone: '+91 98765 00021', area: 'New Market', city: 'Bhopal', website: 'https://demo-iron.example', primaryType: 'gym', address: 'New Market, Bhopal, Madhya Pradesh', rating: 4.6, ratingCount: 212 })],
+  'Demo Salon': [cp({ placeId: 'demo_chk_salon', name: 'Demo Salon & Spa', phone: '+91 97000 44100', area: 'Vijay Nagar', city: 'Indore', website: 'https://demo-salon.example', primaryType: 'beauty_salon', address: 'Vijay Nagar, Indore, Madhya Pradesh', rating: 4.2, ratingCount: 88 })],
+  'Demo Brew Cafe': [
+    cp({ placeId: 'demo_chk_brew1', name: 'Demo Brew Cafe Vijay Nagar', city: 'Indore', address: 'Scheme 54, Vijay Nagar, Indore', primaryType: 'cafe', rating: 4.4, ratingCount: 312 }),
+    cp({ placeId: 'demo_chk_brew2', name: 'Demo Brew Cafe Palasia', city: 'Indore', address: 'Palasia, Indore', primaryType: 'coffee_shop', rating: 4.1, ratingCount: 88 }),
+    cp({ placeId: 'demo_chk_brew3', name: 'Demo Brew Cafe Rau', city: 'Indore', address: 'Rau, Indore', primaryType: 'restaurant', rating: 3.9, ratingCount: 41 }),
+  ],
+};
+
 const mockPlaces: PlacesClient = {
+  async checkSearch(q, limit) {
+    const key = Object.keys(CHECKS).find((k) => q.startsWith(k));
+    return (key ? CHECKS[key] : []).slice(0, limit);
+  },
+  async checkDetails(id) {
+    const p = Object.values(CHECKS).flat().find((x) => x.placeId === id);
+    if (!p) throw new Error('not found');
+    return p;
+  },
   async searchText(_q, limit) {
     return FAKE.slice(0, limit);
   },
@@ -127,6 +148,11 @@ async function main() {
   const slots = (await staff.c.req('GET', `/api/slots?from=${days[0]}&days=3`)).slots;
   if (slots?.[0]) await staff.c.req('POST', '/api/bookings', { leadId: m2.id, founderId: slots[0].founderId, date: slots[0].date, start: slots[0].start, clientName: 'Demo Client', phone: '9876500012', mode: 'Zoho Cliq', link: '', notes: '' });
   await owner.req('PATCH', `/api/leads/${m2.id}`, { callHappened: true, status: 'Won', clientPaid: true, dealType: 'One-time', dealValue: 25000 });
+
+  // Leads the team added by hand, for "Check against Google".
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Iron Gym', category: 'Gym / Fitness', area: 'New Market', city: 'Bhopal', phone: '98765 00021', websiteOrInstagram: 'demo-iron.example' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Brew Cafe', category: 'Restaurant / Café', area: 'Vijay Nagar', city: 'Indore', phone: '98765 00022' });
+  await staff.c.req('POST', '/api/leads', { businessName: 'Demo Nowhere Bakery', category: 'Bakery', city: 'Bhopal', phone: '98765 00023' });
 
   console.log(`DEMO READY ${base}/team  founder ${DEMO_ACCOUNTS.founder.email}  employee ${DEMO_ACCOUNTS.employee.email} (demo passwords in server/dev/demo.ts)`);
 }

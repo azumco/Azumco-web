@@ -18,6 +18,7 @@ import { workRoutes } from './routes/work.ts';
 import { milestoneRoutes } from './routes/milestone.ts';
 import { maintenanceRoutes } from './routes/maintenance.ts';
 import { PlacesService } from './places/service.ts';
+import { LeadCheckService } from './places/check.ts';
 import { setAssignmentMinutesOverride } from './leads/service.ts';
 import { GooglePlacesClient, type PlacesClient } from './places/client.ts';
 import { log } from './lib/log.ts';
@@ -89,7 +90,7 @@ export function createApp({ config, db, ready, staticDir, placesClient }: AppDep
 
   api.use('/auth', authRoutes(config, db, sessions));
   api.use('/users', requireAuth(sessions), usersRoutes(db, config.ALLOWED_EMAIL_DOMAIN));
-  api.use(requireAuth(sessions), workRoutes(db, places));
+  api.use(requireAuth(sessions), workRoutes(db, places, new LeadCheckService(db, places, config.SESSION_SECRET)));
   api.use(requireAuth(sessions), milestoneRoutes(db));
 
   api.use((_req, _res, next) => next(new HttpError(404, 'Not found.')));

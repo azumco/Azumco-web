@@ -19,6 +19,7 @@ import {
   CALL_OUTCOMES, DEAL_TYPES, LEAD_SOURCES, LEAD_STATUSES, RATINGS, commissionFor, isReachedOutcome,
 } from '../../shared/rules.ts';
 import { assertLeadAccess, effectiveAssignee, isFounder, isLapsed, timerRunning } from './access.ts';
+import { leadOrigin, parseCodes, type CheckStatus } from '../../shared/leadCheck.ts';
 
 const HOUR = 3_600_000;
 export const ASSIGN_WINDOWS = [12, 24, 48] as const;
@@ -247,6 +248,7 @@ export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; b
     contactPerson: l.contactPerson,
     phone: l.phone,
     city: l.city,
+    area: l.area ?? '',
     websiteOrInstagram: l.websiteOrInstagram,
     source: l.source,
     serviceInterest: l.serviceInterest,
@@ -287,6 +289,17 @@ export function leadView(l: Row, ctx: { now: Date; users: Row[]; calls: Row[]; b
     commissionPaidAt: l.commissionPaidAt || null,
     notes: l.notes,
     updatedAt: l.updatedAt,
+    /** 'team' (added by a person) or 'find_clients'. Only team leads can be checked against Google. */
+    origin: leadOrigin(l),
+    /** Result codes only; Google's own values are never stored. */
+    googleCheck: {
+      status: ((l.gcStatus ?? '') as CheckStatus),
+      fields: parseCodes(l.gcFields),
+      linked: Boolean(l.gcPlaceId),
+      candidates: (l.gcCandidates ?? '').split(',').filter(Boolean).length,
+      checkedAt: l.gcCheckedAt || null,
+      checkedByName: ctx.users.find((u) => u.id === l.gcCheckedBy)?.name ?? '',
+    },
   };
 }
 export type LeadView = ReturnType<typeof leadView>;
@@ -335,6 +348,7 @@ const teamFields = {
   contactPerson: text(150),
   phone: text(40),
   city: text(120),
+  area: text(120),
   websiteOrInstagram: text(300),
   source: z.union([z.enum(LEAD_SOURCES), z.literal('')]),
   serviceInterest: text(200),
@@ -366,7 +380,7 @@ export const createLeadSchema = z.object({
   assignTo: z.string().optional(),
   /** Manual leads get an expiry only when the assigner asks for one. */
   deadlineHours: z.union([z.literal(12), z.literal(24), z.literal(48)]).optional(),
-}).partial({ category: true, contactPerson: true, phone: true, city: true, websiteOrInstagram: true, source: true, serviceInterest: true });
+}).partial({ category: true, contactPerson: true, phone: true, city: true, area: true, websiteOrInstagram: true, source: true, serviceInterest: true });
 
 export const founderPatchSchema = z
   .object({ ...teamFields, ...employeeFields, ...founderFields, expectedUpdatedAt: z.string() })
@@ -400,7 +414,7 @@ function phoneOwner(leads: Row[], e164: string, exceptId?: string): Row | undefi
   return leads.find((l) => l.id !== exceptId && l.phone && normalizePhone(l.phone) === e164);
 }
 
-function cleanPhone(raw: string | undefined, leads: Row[], exceptId?: string): string {
+export function cleanPhone(raw: string | undefined, leads: Row[], exceptId?: string): string {
   if (!raw) return '';
   const e164 = normalizePhone(raw);
   if (!e164) throw new HttpError(400, 'That phone number does not look right. Use 10 digits, or +country code for numbers outside India.');
@@ -535,6 +549,7 @@ export async function createLead(db: Db, actor: SessionUser, raw: z.infer<typeof
         ...fields,
         phone,
         phoneSource: phone ? 'manual' : '',
+        origin: 'team',
         dateAdded: istDate(now),
         addedBy: actor.id,
         status: 'New',
@@ -601,6 +616,13 @@ export async function updateLead(db: Db, actor: SessionUser, id: string, body: u
       if (patch.phone !== lead.phone) patch.phoneSource = patch.phone ? 'manual' : '';
     }
     if (patch.callHappened === 'TRUE' && ['New', 'Contacted'].includes(patch.status ?? lead.status)) patch.status = 'Qualified';
+    // A Google check compared the old details: once a compared field changes,
+    // its result no longer holds, so the lead goes back to "not checked".
+    const CHECKED = ['businessName', 'phone', 'area', 'city', 'websiteOrInstagram', 'category'];
+    if (['matches', 'needs_review', 'reviewed'].includes(lead.gcStatus ?? '') && CHECKED.some((k) => k in patch && patch[k] !== (lead[k] ?? ''))) {
+      patch.gcStatus = '';
+      patch.gcFields = '';
+    }
     const { before, after } = await db.updateUnqueued('Leads', id, patch, actor.id, expectedUpdatedAt);
     if (!founder && detailKeys.length) {
       await auditUnqueued(db, [{

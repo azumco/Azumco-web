@@ -10,7 +10,7 @@ import { navigate } from '../router';
 import { Button, ChipGroup, ErrorText, Field, Modal, SearchableSelect } from '../ui';
 
 const SOURCES = LEAD_SOURCES.filter((s) => s !== 'Google Places');
-const BLANK = { businessName: '', category: '', contactPerson: '', phone: '', city: '', websiteOrInstagram: '', source: '', serviceInterest: '' };
+const BLANK = { businessName: '', category: '', contactPerson: '', phone: '', area: '', city: '', websiteOrInstagram: '', source: '', serviceInterest: '' };
 
 export default function AddOwnLead({ className = '' }: { className?: string }) {
   const [open, setOpen] = useState(false);
@@ -38,8 +38,9 @@ export default function AddOwnLead({ className = '' }: { className?: string }) {
           <Field label="Business name" required value={f.businessName} onChange={set('businessName')} />
           <div className="grid gap-5 sm:grid-cols-2">
             <SearchableSelect label="Business type" value={f.category} options={BUSINESS_CATEGORIES} allowCustom onChange={(v) => setF({ ...f, category: v })} />
-            <Field label="City / area" value={f.city} onChange={set('city')} />
+            <Field label="Area" placeholder="e.g. MP Nagar" value={f.area} onChange={set('area')} />
           </div>
+          <Field label="City" value={f.city} onChange={set('city')} />
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Contact person" value={f.contactPerson} onChange={set('contactPerson')} />
             <Field label="Phone" type="tel" inputMode="tel" value={f.phone} onChange={set('phone')} />

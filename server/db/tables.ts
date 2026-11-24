@@ -33,6 +33,7 @@ const SPEC: Record<TabName, Record<string, ColType>> = {
     assignedTo: 'r', assignedAt: 'ts', expiresAt: 'ts', expiryApplies: 'b', timerStoppedAt: 'ts', contacted: 'b', firstCallDate: 'd',
     callOutcome: 't', rating: 't', decisionMaker: 't', need: 't', nextStep: 't', followUpDate: 'd', discoveryCallDate: 'd',
     callHappened: 'b', status: 't', dealType: 't', dealValue: 'n', clientPaid: 'b', commissionPaid: 'n', commissionPaidAt: 'ts', notes: 't',
+    area: 't', origin: 't', gcStatus: 't', gcPlaceId: 't', gcFields: 't', gcCandidates: 't', gcCheckedAt: 'ts', gcCheckedBy: 't',
   },
   CallLog: { leadId: 'r', at: 'ts', userId: 'r', outcome: 't', note: 't' },
   Expirations: { leadId: 'r', assigneeId: 't', assignedAt: 'ts', expiresAt: 'ts' },

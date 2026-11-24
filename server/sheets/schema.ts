@@ -30,6 +30,10 @@ export const TABS = {
     'contacted', 'firstCallDate', 'callOutcome', 'rating', 'decisionMaker', 'need',
     'nextStep', 'followUpDate', 'discoveryCallDate', 'callHappened', 'status', 'dealType',
     'dealValue', 'clientPaid', 'commissionPaid', 'commissionPaidAt', 'notes',
+    // Added later (appended, never reordered). origin: 'team' (added by a person)
+    // or 'find_clients'. gc*: "Check against Google" — the place ID, status,
+    // per-field RESULT CODES (never Google's values), candidate place IDs, who and when.
+    'area', 'origin', 'gcStatus', 'gcPlaceId', 'gcFields', 'gcCandidates', 'gcCheckedAt', 'gcCheckedBy',
   ],
   CallLog: ['leadId', 'at', 'userId', 'outcome', 'note'],
   /** One row per expired assignment. The row id is `${leadId}:${expiresAt}`, which makes the sweep idempotent. */
