@@ -19,6 +19,8 @@ export interface Allowance {
   /** Team members only: their own monthly checks. */
   mine: { used: number; limit: number; remaining: number } | null;
   cooldownDays: number;
+  /** First day of next month (IST), when allowances reset. */
+  resetsOn: string;
 }
 export const ALLOWANCE_PATH = '/google-check/allowance';
 /** Checks the person can still run right now (their allowance, the Google cap, the pause switch). */

@@ -11,7 +11,7 @@ import { Async, Avatar, BoxInput, Button, Card, CardHeader, ChipGroup, ErrorText
 import ChangePassword from './ChangePassword';
 import type { PlacesUsage, TeamUser } from '../types';
 
-interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; meetLink: string; leadCheckLimit: number | null; updatedAt: string }
+interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; meetLink: string; leadCheckLimit: number | null; leadChecksUsed: number; updatedAt: string }
 interface SettingsData {
   settings: { placesMonthlyCap: number; placesPaused: boolean; commissionQualifiedFee: number; commissionOneTimePct: number; commissionMonthlyPct: number; assignmentWindowHours: number; contactedRule: 'any_attempt' | 'reached_only'; memberLeadChecksPerMonth: number };
   usage: PlacesUsage;
@@ -80,9 +80,9 @@ function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => vo
           <div>
             <div className="flex items-end gap-2">
               <Field label="Google checks per month" type="number" min={0} inputMode="numeric" placeholder="Default (Settings)" value={checks} onChange={(e) => setChecks(e.target.value)} className="flex-1" />
-              <Button size="sm" variant="secondary" busy={busy} disabled={checks === (u.leadCheckLimit === null ? '' : String(u.leadCheckLimit)) || (checks.trim() !== '' && !(Number.isInteger(Number(checks)) && Number(checks) >= 0))} onClick={() => patch({ leadCheckLimit: checks.trim() === '' ? null : Number(checks) }, false)}>Save</Button>
+              <Button size="sm" variant="secondary" busy={busy} disabled={checks === (u.leadCheckLimit === null ? '' : String(u.leadCheckLimit)) || (checks.trim() !== '' && !(Number.isInteger(Number(checks)) && Number(checks) >= 0))} onClick={async () => { if (await run(() => api('PUT', `/team/${u.id}/lead-check-limit`, { limit: checks.trim() === '' ? null : Number(checks) }))) onSaved(); }}>Save</Button>
             </div>
-            <p className="mt-1.5 text-xs text-fg-3">Checks of leads they added, each lead once a week. Leave empty to use the default for the team.</p>
+            <p className="mt-1.5 text-xs text-fg-3">Used {u.leadChecksUsed} this month. Checks of leads they added, each lead once a week. Leave empty to use the default for the team.</p>
           </div>
         )}
         {u.role !== 'employee' && (

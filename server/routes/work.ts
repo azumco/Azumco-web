@@ -162,6 +162,11 @@ export function workRoutes(db: Db, places: PlacesService, leadCheck: LeadCheckSe
   r.get('/google-check/allowance', async (_req, res) => {
     res.json(await leadCheck.allowance(me(res)));
   });
+  /** Founders set a team member's monthly Google checks (null = the Settings default). */
+  r.put('/team/:id/lead-check-limit', FOUNDERS, async (req, res) => {
+    const body = parse(z.object({ limit: z.number().int().min(0).max(100_000).nullable() }).strict(), req.body);
+    res.json(await leadCheck.setMemberLimit(me(res), param(req, 'id'), body.limit, req.ip));
+  });
   r.post('/leads/:id/google-check', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await leadCheck.check(me(res), param(req, 'id'), parse(checkSchema, req.body ?? {}), req.ip));
   });
