@@ -183,3 +183,11 @@ Supabase → Project Settings → Database → Reset database password. Copy the
 Milliseconds; "cold" is the first request after start, "warm" the median of 5. Writes are 2× faster; reads are served from a short cache on both. From Render in the same region as the Supabase project every database round trip drops to a few ms, so pick the Supabase region closest to the Render region. Login time is mostly the deliberate bcrypt cost.
 
 **Caching on Postgres:** each server keeps a 5-second per-table read cache that it drops the moment it writes that table (Sheets used 30 s). Reads inside a write transaction always go to the database. Only another process's writes (e.g. during a deploy overlap) can appear up to 5 s late.
+
+## 10. Check against Google (team-added leads)
+
+- **Where:** Leads → Google check (founders). Leads a person added can be checked; leads from Find clients show "From Find clients" and are refused by the server. Who may run checks is one constant: `shared/leadCheck.ts#LEAD_CHECK_ROLES`.
+- **Cost:** a check is 1 Text Search (Enterprise) call. Choosing among the candidates it returned, saving choices and "Mark as not on Google" cost nothing. "Show Google's details" / "Check again" on a past check is 1 call. All calls count against the monthly cap and stop when paused.
+- **Stored:** only the place ID, status, per-field result codes, candidate place IDs and who/when (`leads.gc_*`). Google's values are never stored, except a value a founder confirmed with the business and saved ("Use Google's" / "Add to lead" need the tick; the server enforces it). Every save is audited (`lead.google_apply`).
+- **Migration:** `002_lead_check.sql` adds `area`, `origin` and `gc_*` columns (additive, idempotent) and sets `origin` from the place ID. It runs automatically at start. On Sheets the same columns are appended to the Leads header at start, so the Sheets rollback keeps working; rows with a blank `origin` are read as Find clients if they have a place ID.
+- **Rollback:** redeploy the previous commit in Render (the extra columns are ignored by older code), or `git revert` the merge and push.

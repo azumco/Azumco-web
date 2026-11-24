@@ -68,7 +68,12 @@ export class PlacesService {
    * The pause is checked when the request joins the queue (inside the claim,
    * from a fresh read) and again immediately before the request leaves.
    */
-  private async paidCall<T>(sku: PlacesSku, actor: SessionUser, call: (c: PlacesClient) => Promise<T>, onReject?: (e: PlacesHttpError) => never): Promise<T> {
+  /** The configured client (lead checks use it through paidCall only). */
+  get placesClient(): PlacesClient {
+    return this.requireClient();
+  }
+
+  async paidCall<T>(sku: PlacesSku, actor: SessionUser, call: (c: PlacesClient) => Promise<T>, onReject?: (e: PlacesHttpError) => never): Promise<T> {
     const client = this.requireClient();
     if ((await getSettings(this.db)).placesPaused) throw new HttpError(423, PAUSED, 'PLACES_PAUSED');
 
@@ -143,6 +148,7 @@ export class PlacesService {
           state: input.state,
           searchedAt: input.searchedAt,
           source: GOOGLE_SOURCE,
+          origin: 'find_clients',
           dateAdded: istDate(now),
           addedBy: actor.id,
           status: 'New',

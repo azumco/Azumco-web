@@ -1,5 +1,7 @@
 // Shapes returned by the team API.
 
+import type { CheckStatus, FieldCodes } from '../../shared/leadCheck';
+
 export type Role = 'super_admin' | 'admin' | 'employee';
 
 export interface TeamUser {
@@ -73,6 +75,18 @@ export interface Lead {
   commissionPaidAt: string | null;
   notes: string;
   updatedAt: string;
+  area: string;
+  /** 'team' = added by a person; 'find_clients' = imported from Find clients. */
+  origin: 'team' | 'find_clients';
+  /** "Check against Google": result codes only (Google's values are never stored). */
+  googleCheck: {
+    status: CheckStatus;
+    fields: FieldCodes | null;
+    linked: boolean;
+    candidates: number;
+    checkedAt: string | null;
+    checkedByName: string;
+  };
 }
 
 export interface LeadsResponse {

@@ -14,6 +14,8 @@ import {
 } from '../ui';
 import AssignDialog from '../components/AssignDialog';
 import { leadSubline } from './Leads';
+import { CheckTag } from '../components/LeadCheckList';
+import { canRunLeadCheck, checkMeta, checkPath } from '../leadCheck';
 import { firstName, isFounder, type CallEntry, type Lead, type TeamUser } from '../types';
 
 interface Detail {
@@ -267,14 +269,14 @@ function EditLead({ lead, founder, own, open, onClose, onSaved }: { lead: Lead; 
   const save = async () => {
     const employeePart = { rating: f.rating, decisionMaker: f.decisionMaker, need: f.need, nextStep: f.nextStep, followUpDate: f.followUpDate, discoveryCallDate: f.discoveryCallDate };
     // A team member may correct the business details of a lead they added themselves.
-    const ownDetails = { businessName: f.businessName, contactPerson: f.contactPerson, phone: f.phone, category: f.category, city: f.city, websiteOrInstagram: f.websiteOrInstagram };
+    const ownDetails = { businessName: f.businessName, contactPerson: f.contactPerson, phone: f.phone, category: f.category, area: f.area, city: f.city, websiteOrInstagram: f.websiteOrInstagram };
     const body = !founder && own
       ? { ...employeePart, ...ownDetails }
       : founder
       ? {
           ...employeePart,
           ...(locked ? {} : { businessName: f.businessName, contactPerson: f.contactPerson, phone: f.phone }),
-          category: f.category, city: f.city, websiteOrInstagram: f.websiteOrInstagram, serviceInterest: f.serviceInterest,
+          category: f.category, area: f.area, city: f.city, websiteOrInstagram: f.websiteOrInstagram, serviceInterest: f.serviceInterest,
           status: f.status, dealType: f.dealType, dealValue: Number(f.dealValue) || 0, clientPaid: f.clientPaid, callHappened: f.callHappened, notes: f.notes,
         }
       : employeePart;
@@ -299,7 +301,8 @@ function EditLead({ lead, founder, own, open, onClose, onSaved }: { lead: Lead; 
         {(founder || own) && (
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Category" value={f.category} onChange={set('category')} />
-            <Field label="City / area" value={f.city} onChange={set('city')} />
+            <Field label="Area" value={f.area} onChange={set('area')} />
+            <Field label="City" value={f.city} onChange={set('city')} />
           </div>
         )}
         {own && !founder && <Field label="Website / Instagram" value={f.websiteOrInstagram} onChange={set('websiteOrInstagram')} />}
@@ -359,6 +362,19 @@ export function LeadPanel({ id, user, embedded, fullWidth, onChanged }: { id: st
               </div>
               {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
             </div>
+
+            {lead.origin === 'team' && (lead.googleCheck.status || founder) && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line px-4 py-2.5 text-sm">
+                <span className="text-fg-3">Google check</span>
+                <CheckTag lead={lead} />
+                {lead.googleCheck.checkedAt && <span className="text-xs text-fg-3">{formatDate(lead.googleCheck.checkedAt)}{lead.googleCheck.checkedByName ? ` · ${firstName(lead.googleCheck.checkedByName)}` : ''}</span>}
+                {founder && canRunLeadCheck(user) && (
+                  <a href={checkPath(lead.id)} onClick={(e) => { e.preventDefault(); navigate(checkPath(lead.id)); }} className="ml-auto min-h-9 py-2 font-medium text-brand">
+                    {checkMeta(lead).action || 'Open'} →
+                  </a>
+                )}
+              </div>
+            )}
 
             {lead.needsLiveLookup ? <LiveContact lead={lead} auto={!founder} wide={wide} /> : <StoredContact lead={lead} />}
 

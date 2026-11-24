@@ -25,6 +25,7 @@ import Home from './pages/Home';
 import Reports from './pages/Reports';
 import Leads from './pages/Leads';
 import LeadDetail from './pages/LeadDetail';
+import LeadCheck from './pages/LeadCheck';
 import FindClients from './pages/FindClients';
 import Calendar from './pages/Calendar';
 import Book from './pages/Book';
@@ -101,6 +102,8 @@ const MEMBER_TABS: NavItem[] = [
 const MEMBER_NAV: NavItem[] = [...MEMBER_TABS.slice(0, 2), { path: '/team/history', label: 'My leads', icon: HistoryIcon }, ...MEMBER_TABS.slice(2)];
 
 function founderPage(path: string, user: TeamUser, unread: number, onSignOut: () => void): ReactNode {
+  const check = /^\/team\/leads\/([^/]+)\/google$/.exec(path);
+  if (check) return <LeadCheck id={check[1]} />;
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
   if (lead) return <LeadDetail id={lead[1]} user={user} />;
   switch (path) {

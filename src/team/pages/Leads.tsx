@@ -8,8 +8,9 @@ import { formatDate } from '../../../shared/time';
 import { api } from '../api';
 import { useAction, useApi, useServerNow } from '../hooks';
 import { navigate } from '../router';
-import { Async, Avatar, BoxInput, Button, ChipGroup, ChoiceChip, Countdown, Empty, ErrorText, Field, Modal, SearchableSelect, StatusPill, cx } from '../ui';
+import { Async, Avatar, BoxInput, Button, ChipGroup, ChoiceChip, Countdown, Empty, ErrorText, Field, Modal, SearchableSelect, Segmented, StatusPill, cx } from '../ui';
 import AssignDialog from '../components/AssignDialog';
+import LeadCheckList from '../components/LeadCheckList';
 import type { Lead, LeadsResponse, TeamMember } from '../types';
 
 type View = 'all' | 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost' | 'expired' | 'unclaimed' | 'due';
@@ -60,7 +61,7 @@ function sourceLabel(s: string) {
 }
 
 function AddLead({ open, onClose, onSaved }: { open: boolean; onClose: () => void; onSaved: (id: string) => void }) {
-  const blank = { businessName: '', category: '', contactPerson: '', phone: '', city: '', websiteOrInstagram: '', source: '', serviceInterest: '' };
+  const blank = { businessName: '', category: '', contactPerson: '', phone: '', area: '', city: '', websiteOrInstagram: '', source: '', serviceInterest: '' };
   const [f, setF] = useState(blank);
   const [assignTo, setAssignTo] = useState('');
   const [hours, setHours] = useState('none');
@@ -83,13 +84,16 @@ function AddLead({ open, onClose, onSaved }: { open: boolean; onClose: () => voi
         <Field label="Business name" required value={f.businessName} onChange={set('businessName')} />
         <div className="grid gap-5 sm:grid-cols-2">
           <SearchableSelect label="Business type" value={f.category} options={BUSINESS_CATEGORIES} allowCustom onChange={(v) => setF({ ...f, category: v })} />
-          <Field label="City / area" value={f.city} onChange={set('city')} />
+          <Field label="Area" placeholder="e.g. MP Nagar" value={f.area} onChange={set('area')} />
         </div>
         <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="City" value={f.city} onChange={set('city')} />
           <Field label="Contact person" value={f.contactPerson} onChange={set('contactPerson')} />
-          <Field label="Phone" type="tel" inputMode="tel" value={f.phone} onChange={set('phone')} />
         </div>
-        <Field label="Website / Instagram" value={f.websiteOrInstagram} onChange={set('websiteOrInstagram')} />
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Field label="Phone" type="tel" inputMode="tel" value={f.phone} onChange={set('phone')} />
+          <Field label="Website / Instagram" value={f.websiteOrInstagram} onChange={set('websiteOrInstagram')} />
+        </div>
         <ChipGroup label="Source" options={MANUAL_SOURCES} value={f.source as (typeof MANUAL_SOURCES)[number] | ''} onChange={(v) => setF({ ...f, source: v })} />
         <Field label="Service interest" value={f.serviceInterest} onChange={set('serviceInterest')} />
         <ChipGroup label="Assign to" options={[{ value: '', label: 'Nobody yet' }, ...(team.data?.users ?? []).filter((u) => u.canReceiveLeads).map((u) => ({ value: u.id, label: u.name.split(' ')[0] }))]} value={assignTo} onChange={setAssignTo} required />
@@ -115,6 +119,11 @@ export default function Leads() {
   const params = new URLSearchParams(window.location.search);
   const state = useApi<LeadsResponse>('/leads');
   const now = useServerNow(state.data?.serverNow);
+  const [tab, setTabState] = useState<'pipeline' | 'google'>(params.get('tab') === 'google' ? 'google' : 'pipeline');
+  const setTab = (t: 'pipeline' | 'google') => {
+    setTabState(t);
+    window.history.replaceState(null, '', t === 'google' ? '/team/leads?tab=google' : '/team/leads');
+  };
   const [view, setView] = useState<View>((VIEWS.find((v) => v.key === params.get('view'))?.key as View) ?? 'all');
   const [q, setQ] = useState('');
   const [source, setSource] = useState(ANY);
@@ -142,9 +151,12 @@ export default function Leads() {
   return (
     <div>
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <h1 className="text-3xl font-medium tracking-[-0.035em] sm:text-[2.6rem]">
-          Leads <span className="font-serif font-normal italic tracking-normal text-brand">{leads.length || ''}</span>
-        </h1>
+        <div className="min-w-0">
+          <h1 className="text-3xl font-medium tracking-[-0.035em] sm:text-[2.6rem]">
+            Leads <span className="font-serif font-normal italic tracking-normal text-brand">{leads.length || ''}</span>
+          </h1>
+          {tab === 'google' && <p className="mt-1 text-fg-2">Check the leads your team added against Google Maps.</p>}
+        </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <BoxInput aria-label="Search leads" placeholder="Search business, contact, phone or city" value={q} onChange={(e) => setQ(e.target.value)} icon={<Search className="h-4 w-4 text-fg-3" />} className="sm:w-80" />
           <div className="flex gap-2">
@@ -156,6 +168,20 @@ export default function Leads() {
         </div>
       </div>
 
+      <Segmented
+        className="mb-6 sm:max-w-sm"
+        label="Leads view"
+        options={[{ value: 'pipeline', label: 'Pipeline' }, { value: 'google', label: 'Google check' }]}
+        value={tab}
+        onChange={setTab}
+      />
+
+      {tab === 'google' ? (
+        <Async state={state} label="Loading leads…">
+          {() => <LeadCheckList leads={leads} founder onChanged={() => void state.reload()} q={q} />}
+        </Async>
+      ) : (
+      <>
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <SearchableSelect label="Source" value={source === ANY ? 'Any source' : source} onChange={(v) => setSource(!v || v === 'Any source' ? ANY : v)} options={['Any source', ...[...new Set(leads.map((l) => l.source).filter(Boolean))].sort()]} />
         <SearchableSelect label="Assigned to" value={person === ANY ? 'Anyone' : person === UNASSIGNED ? 'Nobody (unclaimed)' : leads.find((l) => l.assignedTo === person)?.assigneeName ?? 'Anyone'} onChange={(v) => setPerson(!v || v === 'Anyone' ? ANY : v === 'Nobody (unclaimed)' ? UNASSIGNED : leads.find((l) => l.assigneeName === v)?.assignedTo ?? ANY)} options={['Anyone', 'Nobody (unclaimed)', ...[...new Set(leads.filter((l) => l.assignedTo).map((l) => l.assigneeName))].sort()]} />
@@ -259,6 +285,8 @@ export default function Leads() {
           )
         }
       </Async>
+      </>
+      )}
 
       <AddLead open={adding} onClose={() => setAdding(false)} onSaved={(id) => { setAdding(false); navigate(`/team/leads/${id}`); }} />
       {assigning && (
