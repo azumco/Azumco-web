@@ -51,6 +51,9 @@ class MockCheckPlaces implements PlacesClient {
   }
 }
 
+/** Long end-to-end scenarios: generous on a remote Postgres shared by parallel test files. */
+const LONG = 300_000;
+
 let h: Harness | undefined;
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -413,7 +416,7 @@ describe('No Google values are stored, except confirmed and saved ones', () => {
     } finally {
       process.env.NODE_ENV = prevEnv;
     }
-  });
+  }, LONG);
 });
 
 
@@ -550,5 +553,5 @@ describe('Team members: who, the 7-day rule and the monthly allowance', () => {
     expect(await t.used()).toBe(used);
     expect(await left()).toBe(4);
     expect((await allowance(t.staff)).google.paused).toBe(true);
-  });
+  }, LONG);
 });
