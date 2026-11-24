@@ -15,10 +15,12 @@ import { useApi } from '../hooks';
 import { navigate } from '../router';
 import { Avatar, Button, Checkbox, ErrorText, Loading, LoadError, cx } from '../ui';
 import {
-  applyCheck, leftText, markNotOnGoogle, pickCandidate, recallCheck, runCheck, tally, viewCheck, type CheckResult, type Choice, type Offer,
+  ALLOWANCE_PATH, applyCheck, canRunLeadCheck, checksLeft, leftText, markNotOnGoogle, pickCandidate, recallCheck, runCheck, tally, viewCheck,
+  type Allowance, type CheckResult, type Choice, type Offer,
 } from '../leadCheck';
-import type { Lead, PlacesUsage } from '../types';
+import type { Lead, TeamUser } from '../types';
 
+type PlacesUsage = Allowance;
 const BACK = '/team/leads?tab=google';
 
 function useCall() {
@@ -321,7 +323,7 @@ function NotFound({ lead, initialQuery, usage, marked, onResult, onMarked, searc
           <Search className="h-4 w-4 shrink-0 text-fg-3" />
           <input aria-label="Search Google" value={q} onChange={(e) => setQ(e.target.value)} className="min-w-0 flex-1 bg-transparent py-2 text-fg outline-none" />
         </label>
-        <Button type="submit" busy={call.busy === 'search'} disabled={Boolean(call.busy) || !q.trim() || usage?.paused || usage?.remaining === 0}>Search again</Button>
+        <Button type="submit" busy={call.busy === 'search'} disabled={Boolean(call.busy) || !q.trim() || checksLeft(usage) <= 0}>Search again</Button>
       </form>
       <div className="mx-auto mt-2 max-w-xl text-left"><CallNote usage={usage} /></div>
       <ErrorText>{call.error}</ErrorText>
@@ -345,13 +347,13 @@ function NotFound({ lead, initialQuery, usage, marked, onResult, onMarked, searc
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 
-export default function LeadCheck({ id }: { id: string }) {
+export default function LeadCheck({ id, user }: { id: string; user: TeamUser }) {
   const state = useApi<{ lead: Lead }>(`/leads/${id}`);
-  const status = useApi<{ enabled: boolean; usage: PlacesUsage }>('/places/status');
+  const status = useApi<Allowance>(ALLOWANCE_PATH);
   const [result, setResult] = useState<CheckResult | undefined>(() => recallCheck(id));
   const [editing, setEditing] = useState(false);
   const call = useCall();
-  const usage = result?.usage ?? status.data?.usage;
+  const usage = status.data ?? undefined;
   const lead = state.data?.lead;
 
   const done = (r: CheckResult | undefined) => {
@@ -368,6 +370,9 @@ export default function LeadCheck({ id }: { id: string }) {
     if (!lead) return null;
     if (lead.origin !== 'team') {
       return <Banner tone="info" icon={<MapPin className="h-5 w-5" />} title="From Find clients">This lead came from Google already, so it isn't checked.</Banner>;
+    }
+    if (!canRunLeadCheck(user, lead)) {
+      return <Banner tone="info" icon={<Info className="h-5 w-5" />} title="Only the person who added this lead, or a founder, can check it">You can check the leads you added yourself.</Banner>;
     }
     const query = result?.query ?? [lead.businessName, lead.area, lead.city].filter(Boolean).join(', ');
     if (editing || result?.status === 'not_found' || (!result && (lead.googleCheck.status === 'not_found' || lead.googleCheck.status === 'not_on_google'))) {
@@ -413,7 +418,7 @@ export default function LeadCheck({ id }: { id: string }) {
           </ul>
         )}
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-          <Button busy={call.busy === intro.what} disabled={Boolean(call.busy) || usage?.paused || usage?.remaining === 0} onClick={intro.fn}>{intro.button}</Button>
+          <Button busy={call.busy === intro.what} disabled={Boolean(call.busy) || checksLeft(usage) <= 0} onClick={intro.fn}>{intro.button}</Button>
           <CallNote usage={usage} />
         </div>
         {gc.checkedAt && <p className="mt-4 text-xs text-fg-3">Last checked {formatDateTime(gc.checkedAt)}{gc.checkedByName ? ` by ${gc.checkedByName}` : ''}.</p>}
@@ -436,9 +441,9 @@ export default function LeadCheck({ id }: { id: string }) {
             {[lead.category, lead.addedByName && `added by ${lead.addedByName}${lead.dateAdded ? ` on ${formatDate(lead.dateAdded).slice(0, 6)}` : ''}`].filter(Boolean).join(' · ') || 'Check against Google'}
           </p>
         </div>
-        {lead.origin === 'team' && (result || lead.googleCheck.status) && (
+        {canRunLeadCheck(user, lead) && (result || lead.googleCheck.status) && (
           <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
-            <Button variant="secondary" busy={call.busy === 'check'} disabled={Boolean(call.busy) || usage?.paused || usage?.remaining === 0} onClick={checkAgain}>
+            <Button variant="secondary" busy={call.busy === 'check'} disabled={Boolean(call.busy) || checksLeft(usage) <= 0} onClick={checkAgain}>
               <RefreshCw className="h-4 w-4" /> Check again
             </Button>
             <CallNote usage={usage} />

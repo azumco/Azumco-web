@@ -14,6 +14,8 @@ export const TABS = {
     'email', 'name', 'role', 'active', 'passwordHash', 'mustChangePassword',
     'failedAttempts', 'lockedUntil', 'sessionVersion', 'lastLoginAt',
     'jobTitle', 'canReceiveLeads', 'calendarColor', 'meetLink',
+    // Google checks this person may run per month; '' = the Settings default.
+    'leadCheckLimit',
   ],
   Sessions: ['tokenHash', 'userId', 'sessionVersion', 'csrfToken', 'expiresAt', 'ip', 'userAgent'],
   Settings: ['key', 'value'],

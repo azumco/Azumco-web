@@ -29,8 +29,11 @@ import type { SessionUser } from '../auth/sessions.ts';
 import { HttpError } from '../auth/middleware.ts';
 import { auditUnqueued } from '../audit.ts';
 import { cleanPhone } from '../leads/service.ts';
+import { assertLeadAccess } from '../leads/access.ts';
+import { getSettings } from '../settings.ts';
+import { formatDate, istYearMonth } from '../../shared/time.ts';
 import {
-  CHECK_FIELDS, categoryFromGoogle, checkQuery, compareLead, decideMatch, leadOrigin, overallStatus, ourSide,
+  CHECK_FIELDS, MEMBER_CHECK_COOLDOWN_DAYS, isUnlimitedChecker, categoryFromGoogle, checkQuery, compareLead, decideMatch, leadOrigin, overallStatus, ourSide,
   type CheckField, type CheckStatus, type FieldCodes, type GoogleSide,
 } from '../../shared/leadCheck.ts';
 import type { CheckPlace } from './client.ts';
@@ -80,7 +83,14 @@ const LEAD_COLUMN: Record<CheckField, string> = {
   businessName: 'businessName', phone: 'phone', area: 'area', city: 'city', website: 'websiteOrInstagram', category: 'category',
 };
 
+/** Audit actions that cost one Google call. */
+const BILLABLE = new Set(['lead.google_check', 'lead.google_view']);
+const DAY = 86_400_000;
+
 export class LeadCheckService {
+  /** One billable check at a time per team member, so two quick taps cannot overspend the allowance. */
+  private memberQueue = new Map<string, Promise<unknown>>();
+
   constructor(
     private readonly db: Db,
     private readonly places: PlacesService,
@@ -116,13 +126,79 @@ export class LeadCheckService {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  private async teamLead(id: string): Promise<Row> {
-    const lead = (await this.db.loadFresh(['Leads']))[0].rows.find((l) => l.id === id);
+  /** The lead, if `actor` may check it: founders any team-added lead, team members only their own. */
+  private async teamLead(id: string, actor: SessionUser): Promise<Row> {
+    const [leads, exp] = await this.db.loadFresh(['Leads', 'Expirations']);
+    const lead = leads.rows.find((l) => l.id === id);
     if (!lead) throw new HttpError(404, 'Lead not found.');
+    if (!isUnlimitedChecker(actor)) {
+      assertLeadAccess(actor, lead, this.db.now(), exp.rows);
+      if (lead.addedBy !== actor.id) throw new HttpError(403, 'You can only check leads you added yourself.', 'NOT_YOUR_LEAD');
+    }
     if (leadOrigin(lead) !== 'team') {
       throw new HttpError(409, 'Leads from Find clients already come from Google, so they are not checked.', 'FIND_CLIENTS_LEAD');
     }
     return lead;
+  }
+
+  /** Billable checks: this person's in this IST month, and the latest on a lead (by anyone). */
+  private async checkHistory(actorId: string, leadId?: string) {
+    const month = istYearMonth(this.db.now());
+    let used = 0;
+    let lastOnLead = '';
+    for (const a of await this.db.all('Audit')) {
+      if (!BILLABLE.has(a.action)) continue;
+      let calls = 0;
+      try {
+        calls = Number((JSON.parse(a.after || '{}') as { calls?: number }).calls ?? 0);
+      } catch {
+        calls = 0;
+      }
+      if (calls < 1) continue;
+      if (a.actorId === actorId && istYearMonth(new Date(a.at)) === month) used++;
+      if (leadId && a.entityId === leadId && a.at > lastOnLead) lastOnLead = a.at;
+    }
+    return { used, lastOnLead };
+  }
+
+  /** A team member's monthly allowance: their own limit, else the Settings default. */
+  private async memberLimit(actorId: string): Promise<number> {
+    const me = (await this.db.all('Users')).find((u) => u.id === actorId);
+    const own = me?.leadCheckLimit ? Number(me.leadCheckLimit) : NaN;
+    return Number.isInteger(own) && own >= 0 ? own : (await getSettings(this.db)).memberLeadChecksPerMonth;
+  }
+
+  /** Team members: once per lead per week, within their monthly allowance. Founders: no extra limit. */
+  private async billable<T>(actor: SessionUser, lead: Row, run: () => Promise<T>): Promise<T> {
+    if (isUnlimitedChecker(actor)) return run();
+    const prev = this.memberQueue.get(actor.id) ?? Promise.resolve();
+    const task = prev.catch(() => undefined).then(async () => {
+      const { used, lastOnLead } = await this.checkHistory(actor.id, lead.id);
+      if (lastOnLead) {
+        const next = Date.parse(lastOnLead) + MEMBER_CHECK_COOLDOWN_DAYS * DAY;
+        if (this.db.now().getTime() < next) {
+          throw new HttpError(429, `This lead was checked on ${formatDate(lastOnLead)}. It can be checked again from ${formatDate(new Date(next).toISOString())}.`, 'CHECKED_RECENTLY');
+        }
+      }
+      const limit = await this.memberLimit(actor.id);
+      if (used >= limit) throw new HttpError(429, `You've used all ${limit} Google checks for this month. Ask a founder for more.`, 'MEMBER_CHECK_LIMIT');
+      return run();
+    });
+    this.memberQueue.set(actor.id, task);
+    try {
+      return await task;
+    } finally {
+      if (this.memberQueue.get(actor.id) === task) this.memberQueue.delete(actor.id);
+    }
+  }
+
+  /** What the person can still do this month (bulk bar and check screens). */
+  async allowance(actor: SessionUser) {
+    const usage = await placesUsage(this.db);
+    const google = { used: usage.used, cap: usage.cap, remaining: usage.remaining, paused: usage.paused };
+    if (isUnlimitedChecker(actor)) return { unlimited: true, google, mine: null, cooldownDays: MEMBER_CHECK_COOLDOWN_DAYS };
+    const [{ used }, limit] = await Promise.all([this.checkHistory(actor.id), this.memberLimit(actor.id)]);
+    return { unlimited: false, google, mine: { used, limit, remaining: Math.max(0, limit - used) }, cooldownDays: MEMBER_CHECK_COOLDOWN_DAYS };
   }
 
   private client() {
@@ -159,11 +235,15 @@ export class LeadCheckService {
 
   /** One Google call: search by name + area + city (or the founder's edited search). */
   async check(actor: SessionUser, leadId: string, input: z.infer<typeof checkSchema>, ip?: string) {
-    const lead = await this.teamLead(leadId);
+    const lead = await this.teamLead(leadId, actor);
     const ours = ourSide(lead);
     const query = input.query || checkQuery(ours);
     if (!query) throw new HttpError(400, 'Add the business name before checking it against Google.');
     const client = this.client();
+    return this.billable(actor, lead, () => this.search(actor, lead, ours, query, client, ip));
+  }
+
+  private async search(actor: SessionUser, lead: Row, ours: ReturnType<typeof ourSide>, query: string, client: ReturnType<LeadCheckService['client']>, ip?: string) {
     const found = (await this.places.paidCall('text_search_enterprise', actor, () => client.checkSearch(query, MAX_CANDIDATES))).map(toView);
 
     const decision = decideMatch(ours, found);
@@ -179,16 +259,20 @@ export class LeadCheckService {
 
   /** No Google call: the founder picks one of the listings already fetched. */
   async pick(actor: SessionUser, leadId: string, input: z.infer<typeof pickSchema>, ip?: string) {
-    const lead = await this.teamLead(leadId);
+    const lead = await this.teamLead(leadId, actor);
     const place = this.verify(leadId, input.token);
     return this.link(actor, lead, place, 'lead.google_pick', 0, ip);
   }
 
   /** One Google call: re-open a linked check with Google's current values. */
   async view(actor: SessionUser, leadId: string, ip?: string) {
-    const lead = await this.teamLead(leadId);
+    const lead = await this.teamLead(leadId, actor);
     if (!lead.gcPlaceId) throw new HttpError(409, 'This lead is not linked to a Google listing yet. Check it first.', 'NOT_LINKED');
     const client = this.client();
+    return this.billable(actor, lead, () => this.lookup(actor, lead, client, ip));
+  }
+
+  private async lookup(actor: SessionUser, lead: Row, client: ReturnType<LeadCheckService['client']>, ip?: string) {
     const place = toView(await this.places.paidCall('place_details_enterprise', actor, () => client.checkDetails(lead.gcPlaceId), (e) => {
       if (e.status === 404) throw new HttpError(404, 'Google no longer lists this business. Check it again to search for it.');
       throw new HttpError(502, 'Google rejected the request. Nothing was charged; try again later.');
@@ -203,6 +287,7 @@ export class LeadCheckService {
 
   /** No Google call. "Keep mine" needs nothing; "Use Google's" / "Add to lead" need `confirmed`. */
   async apply(actor: SessionUser, leadId: string, input: z.infer<typeof applySchema>, ip?: string) {
+    await this.teamLead(leadId, actor);
     const place = this.verify(leadId, input.token);
     const useGoogle = (Object.entries(input.choices) as [CheckField, 'mine' | 'google'][]).filter(([, c]) => c === 'google').map(([f]) => f);
     if (useGoogle.length && !input.confirmed) {
@@ -225,7 +310,13 @@ export class LeadCheckService {
       }
       for (const f of useGoogle) {
         if (f === 'phone') {
-          patch.phone = cleanPhone(place.phone, state.rows, leadId);
+          try {
+            patch.phone = cleanPhone(place.phone, state.rows, leadId);
+          } catch (e) {
+            // Team members don't see other people's leads, so don't name the match.
+            if (!isUnlimitedChecker(actor) && e instanceof HttpError && e.code === 'DUPLICATE') throw new HttpError(409, "This number is already in Azumco's leads. Ask a founder before adding it again.", 'DUPLICATE');
+            throw e;
+          }
           // Confirmed with the business by a founder: first-party, like "Confirm contact".
           patch.phoneSource = 'outreach_confirmed';
         } else {
@@ -256,7 +347,7 @@ export class LeadCheckService {
 
   /** No Google call: the founder records that the business is not on Google. */
   async markNotOnGoogle(actor: SessionUser, leadId: string, ip?: string) {
-    const lead = await this.teamLead(leadId);
+    const lead = await this.teamLead(leadId, actor);
     await this.save(actor, lead, { gcStatus: 'not_on_google', gcPlaceId: '', gcFields: '', gcCandidates: '', ...this.stamp(actor) }, 'lead.google_not_listed', { status: 'not_on_google' }, ip);
     return { leadId, status: 'not_on_google' as CheckStatus };
   }

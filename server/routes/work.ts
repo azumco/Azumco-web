@@ -17,7 +17,6 @@ import { assertLeadAccess } from '../leads/access.ts';
 import { PlacesService, importSchema, searchSchema } from '../places/service.ts';
 import { placesUsage } from '../places/budget.ts';
 import { LeadCheckService, applySchema, checkSchema, pickSchema } from '../places/check.ts';
-import { LEAD_CHECK_ROLES } from '../../shared/leadCheck.ts';
 import { BookingService, availabilitySchema, bookingSchema, rescheduleSchema, slotBatchSchema } from '../bookings/service.ts';
 import { FinanceService } from '../finance/service.ts';
 import { GoalService } from '../goals/service.ts';
@@ -29,8 +28,7 @@ import { audit } from '../audit.ts';
 
 const FOUNDERS = requireRole('admin');
 const SUPER = requireRole('super_admin');
-/** Who may run "Check against Google" and save its results: shared/leadCheck.ts#LEAD_CHECK_ROLES. */
-const LEAD_CHECKERS = requireRole(...LEAD_CHECK_ROLES);
+
 
 function parse<S extends z.ZodTypeAny>(schema: S, body: unknown): z.output<S> {
   const r = schema.safeParse(body);
@@ -157,21 +155,26 @@ export function workRoutes(db: Db, places: PlacesService, leadCheck: LeadCheckSe
     res.set('Cache-Control', 'no-store').json(await places.lookup(me(res), param(req, 'id'), req.ip));
   });
 
-  // ── Check against Google (team-added leads; founders only) ───────────────
-  // Responses carry Google's values for display only: never cached or stored.
-  r.post('/leads/:id/google-check', LEAD_CHECKERS, async (req, res) => {
+  // ── Check against Google (leads a person added) ─────────────────────────
+  // Who may check what, and the team-member limits, are enforced in
+  // LeadCheckService (rules: shared/leadCheck.ts). Responses carry Google's
+  // values for display only: never cached or stored.
+  r.get('/google-check/allowance', async (_req, res) => {
+    res.json(await leadCheck.allowance(me(res)));
+  });
+  r.post('/leads/:id/google-check', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await leadCheck.check(me(res), param(req, 'id'), parse(checkSchema, req.body ?? {}), req.ip));
   });
-  r.post('/leads/:id/google-check/pick', LEAD_CHECKERS, async (req, res) => {
+  r.post('/leads/:id/google-check/pick', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await leadCheck.pick(me(res), param(req, 'id'), parse(pickSchema, req.body), req.ip));
   });
-  r.post('/leads/:id/google-check/view', LEAD_CHECKERS, async (req, res) => {
+  r.post('/leads/:id/google-check/view', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await leadCheck.view(me(res), param(req, 'id'), req.ip));
   });
-  r.post('/leads/:id/google-check/apply', LEAD_CHECKERS, async (req, res) => {
+  r.post('/leads/:id/google-check/apply', async (req, res) => {
     res.set('Cache-Control', 'no-store').json(await leadCheck.apply(me(res), param(req, 'id'), parse(applySchema, req.body), req.ip));
   });
-  r.post('/leads/:id/google-check/not-on-google', LEAD_CHECKERS, async (req, res) => {
+  r.post('/leads/:id/google-check/not-on-google', async (req, res) => {
     res.json(await leadCheck.markNotOnGoogle(me(res), param(req, 'id'), req.ip));
   });
 

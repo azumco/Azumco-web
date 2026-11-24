@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { ADMIN_EMAIL, Client, EMPLOYEE_EMAIL, SUPER, memberClient, startHarness, superAdmin, type Harness } from './harness.ts';
 import { LOGIN_FAILED, MAX_FAILED_ATTEMPTS } from '../routes/auth.ts';
+import { DEFAULT_SETTINGS } from '../settings.ts';
 
 let h: Harness;
 afterEach(async () => {
@@ -25,7 +26,7 @@ describe('bootstrap', () => {
     await superAdmin(h, 'changed-Passw0rd!');
     h = await h.restart();
     expect((await h.db.all('Users')).length).toBe(3);
-    expect((await h.db.all('Settings')).length).toBe(7);
+    expect((await h.db.all('Settings')).length).toBe(Object.keys(DEFAULT_SETTINGS).length);
     const c = new Client(h.url);
     expect((await c.login(SUPER.email, SUPER.password)).status).toBe(401);
     expect((await c.login(SUPER.email, 'changed-Passw0rd!')).status).toBe(200);

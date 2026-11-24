@@ -11,7 +11,7 @@ import { navigate } from '../router';
 import { Async, Avatar, BoxInput, Button, ChipGroup, ChoiceChip, Countdown, Empty, ErrorText, Field, Modal, SearchableSelect, Segmented, StatusPill, cx } from '../ui';
 import AssignDialog from '../components/AssignDialog';
 import LeadCheckList from '../components/LeadCheckList';
-import type { Lead, LeadsResponse, TeamMember } from '../types';
+import type { Lead, LeadsResponse, TeamMember, TeamUser } from '../types';
 
 type View = 'all' | 'new' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost' | 'expired' | 'unclaimed' | 'due';
 const VIEWS: { key: View; label: string; test: (l: Lead) => boolean }[] = [
@@ -115,7 +115,7 @@ function AddLead({ open, onClose, onSaved }: { open: boolean; onClose: () => voi
   );
 }
 
-export default function Leads() {
+export default function Leads({ user }: { user: TeamUser }) {
   const params = new URLSearchParams(window.location.search);
   const state = useApi<LeadsResponse>('/leads');
   const now = useServerNow(state.data?.serverNow);
@@ -178,7 +178,7 @@ export default function Leads() {
 
       {tab === 'google' ? (
         <Async state={state} label="Loading leads…">
-          {() => <LeadCheckList leads={leads} founder onChanged={() => void state.reload()} q={q} />}
+          {() => <LeadCheckList leads={leads} user={user} onChanged={() => void state.reload()} q={q} />}
         </Async>
       ) : (
       <>

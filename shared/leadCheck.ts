@@ -9,9 +9,19 @@ import { BUSINESS_CATEGORIES } from './rules.ts';
 
 // ─── Who ────────────────────────────────────────────────────────────────────
 
-/** The one place that decides who may run checks and save their results. */
+/**
+ * Who may run checks and save their results — the one place to change it:
+ *  - founders (these roles): any lead a person added, limited only by the monthly Google cap;
+ *  - everyone else (team members): only leads THEY added, at most once per lead every
+ *    MEMBER_CHECK_COOLDOWN_DAYS, and up to their monthly allowance (Settings).
+ */
 export const LEAD_CHECK_ROLES = ['admin', 'super_admin'] as const;
-export const canRunLeadCheck = (user: { role: string }) => (LEAD_CHECK_ROLES as readonly string[]).includes(user.role);
+export const MEMBER_CHECK_COOLDOWN_DAYS = 7;
+export const DEFAULT_MEMBER_CHECKS_PER_MONTH = 100;
+export const isUnlimitedChecker = (user: { role: string }) => (LEAD_CHECK_ROLES as readonly string[]).includes(user.role);
+/** May `user` check `lead` at all (ignoring limits)? */
+export const canRunLeadCheck = (user: { id: string; role: string }, lead: { addedBy?: string; origin?: string; placeId?: string; source?: string }) =>
+  leadOrigin(lead as Readonly<Record<string, string | undefined>>) === 'team' && (isUnlimitedChecker(user) || (Boolean(lead.addedBy) && lead.addedBy === user.id));
 
 /** Where a lead came from: added by a person, or imported from Find clients. */
 export type LeadOrigin = 'team' | 'find_clients';

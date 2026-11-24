@@ -140,10 +140,16 @@ describe('choosing the candidate', () => {
 });
 
 describe('who and what', () => {
-  it('only founders run checks', () => {
-    expect(canRunLeadCheck({ role: 'admin' })).toBe(true);
-    expect(canRunLeadCheck({ role: 'super_admin' })).toBe(true);
-    expect(canRunLeadCheck({ role: 'employee' })).toBe(false);
+  it('founders check any team-added lead; team members only the ones they added; nobody checks Find clients leads', () => {
+    const mine = { addedBy: 'u1', origin: 'team' };
+    const theirs = { addedBy: 'u2', origin: 'team' };
+    const imported = { addedBy: 'u1', origin: '', placeId: 'ChIJ_x' };
+    expect(canRunLeadCheck({ id: 'f', role: 'admin' }, theirs)).toBe(true);
+    expect(canRunLeadCheck({ id: 'f', role: 'super_admin' }, theirs)).toBe(true);
+    expect(canRunLeadCheck({ id: 'u1', role: 'employee' }, mine)).toBe(true);
+    expect(canRunLeadCheck({ id: 'u1', role: 'employee' }, theirs)).toBe(false);
+    expect(canRunLeadCheck({ id: 'u1', role: 'employee' }, imported)).toBe(false);
+    expect(canRunLeadCheck({ id: 'f', role: 'admin' }, imported)).toBe(false);
   });
   it('origin: stored, or derived from the place ID for older rows', () => {
     expect(leadOrigin({ origin: 'team', placeId: '' })).toBe('team');

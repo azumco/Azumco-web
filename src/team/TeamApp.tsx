@@ -12,7 +12,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   Bell, CalendarDays, Clock, Home as HomeIcon, IndianRupee, List, LogOut, Menu, MoreHorizontal, Search, Settings as SettingsIcon, Target,
   Users as UsersIcon, Wallet, X,
-  History as HistoryIcon,
+  History as HistoryIcon, MapPin,
 } from 'lucide-react';
 import { api, onSlow, setCsrf } from './api';
 import { navigate, usePath } from './router';
@@ -26,6 +26,7 @@ import Reports from './pages/Reports';
 import Leads from './pages/Leads';
 import LeadDetail from './pages/LeadDetail';
 import LeadCheck from './pages/LeadCheck';
+import MemberLeadCheck from './pages/MemberLeadCheck';
 import FindClients from './pages/FindClients';
 import Calendar from './pages/Calendar';
 import Book from './pages/Book';
@@ -99,17 +100,22 @@ const MEMBER_TABS: NavItem[] = [
   { path: '/team/goals', label: 'Goals', icon: Target },
   { path: '/team/earnings', label: 'Earnings', icon: IndianRupee },
 ];
-const MEMBER_NAV: NavItem[] = [...MEMBER_TABS.slice(0, 2), { path: '/team/history', label: 'My leads', icon: HistoryIcon }, ...MEMBER_TABS.slice(2)];
+const MEMBER_NAV: NavItem[] = [
+  ...MEMBER_TABS.slice(0, 2),
+  { path: '/team/history', label: 'My leads', icon: HistoryIcon },
+  { path: '/team/leads', label: 'Google check', icon: MapPin },
+  ...MEMBER_TABS.slice(2),
+];
 
 function founderPage(path: string, user: TeamUser, unread: number, onSignOut: () => void): ReactNode {
   const check = /^\/team\/leads\/([^/]+)\/google$/.exec(path);
-  if (check) return <LeadCheck id={check[1]} />;
+  if (check) return <LeadCheck id={check[1]} user={user} />;
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
   if (lead) return <LeadDetail id={lead[1]} user={user} />;
   switch (path) {
     case '/team': return <Home user={user} />;
     case '/team/reports': return <Reports />;
-    case '/team/leads': return <Leads />;
+    case '/team/leads': return <Leads user={user} />;
     case '/team/find': return <FindClients />;
     case '/team/calendar': return <Calendar user={user} />;
     case '/team/book': return <Book user={user} />;
@@ -125,12 +131,15 @@ function founderPage(path: string, user: TeamUser, unread: number, onSignOut: ()
 }
 
 function memberPage(path: string, user: TeamUser): ReactNode {
+  const check = /^\/team\/leads\/([^/]+)\/google$/.exec(path);
+  if (check) return <LeadCheck id={check[1]} user={user} />;
   const lead = /^\/team\/leads\/([^/]+)$/.exec(path);
   if (lead) return <LeadDetail id={lead[1]} user={user} />;
   switch (path) {
     case '/team': return <Queue user={user} />;
     case '/team/followups': return <FollowUps user={user} />;
     case '/team/history': return <History user={user} />;
+    case '/team/leads': return <MemberLeadCheck user={user} />;
     case '/team/book': return <Book user={user} />;
     case '/team/earnings': return <Earnings />;
     case '/team/goals': return <MyGoals user={user} />;
@@ -216,16 +225,19 @@ function Shell({ user, path, onSignOut, nav, tabs, unread, children }: { user: T
   const active = (p: string) =>
     p === '/team' ? path === '/team' : path === p || path.startsWith(`${p}/`) || (p === '/team/money' && ['/team/milestone', '/team/expenses'].includes(path)) || (p === '/team/more' && ['/team/money', '/team/goals', '/team/settings', '/team/notifications'].includes(path));
   // On phones, History is a segment inside Queue, so the Queue tab stays lit.
+  // A team member's lead pages belong to their queue, except the Google check screens.
+  const memberLeadPage = !founder && path.startsWith('/team/leads/') && !path.endsWith('/google');
+  const navActive = (p: string) => (memberLeadPage && p === '/team/leads' ? false : active(p));
   const tabActive = (p: string) => active(p) || (p === '/team' && !founder && path === '/team/history');
 
   const navList = (
     <nav aria-label="Team" className="flex flex-col gap-1">
       {nav.map((n) => (
-        <a key={n.path} {...link(n.path)} aria-current={active(n.path) ? 'page' : undefined} className={cx('flex min-h-11 items-center gap-3 rounded-2xl px-3.5 text-[15px] transition-colors', active(n.path) ? 'bg-bg-3 text-fg' : 'text-fg-2 hover:text-fg')}>
-          <n.icon className={cx('h-4.5 w-4.5', active(n.path) && 'text-brand')} />
+        <a key={n.path} {...link(n.path)} aria-current={navActive(n.path) ? 'page' : undefined} className={cx('flex min-h-11 items-center gap-3 rounded-2xl px-3.5 text-[15px] transition-colors', navActive(n.path) ? 'bg-bg-3 text-fg' : 'text-fg-2 hover:text-fg')}>
+          <n.icon className={cx('h-4.5 w-4.5', navActive(n.path) && 'text-brand')} />
           <span className="flex-1">{n.label}</span>
           {n.count !== undefined && n.count > 0 && (
-            <span className={cx('min-w-6 rounded-full px-2 text-center text-xs tabular-nums', active(n.path) ? 'bg-brand text-bg' : 'bg-bg-3 text-fg-2')}>{n.count}</span>
+            <span className={cx('min-w-6 rounded-full px-2 text-center text-xs tabular-nums', navActive(n.path) ? 'bg-brand text-bg' : 'bg-bg-3 text-fg-2')}>{n.count}</span>
           )}
         </a>
       ))}

@@ -11,9 +11,9 @@ import { Async, Avatar, BoxInput, Button, Card, CardHeader, ChipGroup, ErrorText
 import ChangePassword from './ChangePassword';
 import type { PlacesUsage, TeamUser } from '../types';
 
-interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; meetLink: string; updatedAt: string }
+interface ManagedUser { id: string; email: string; name: string; role: 'super_admin' | 'admin' | 'employee'; active: boolean; hasPassword: boolean; mustChangePassword: boolean; lockedUntil: string | null; jobTitle: string; canReceiveLeads: boolean; calendarColor: string; meetLink: string; leadCheckLimit: number | null; updatedAt: string }
 interface SettingsData {
-  settings: { placesMonthlyCap: number; placesPaused: boolean; commissionQualifiedFee: number; commissionOneTimePct: number; commissionMonthlyPct: number; assignmentWindowHours: number; contactedRule: 'any_attempt' | 'reached_only' };
+  settings: { placesMonthlyCap: number; placesPaused: boolean; commissionQualifiedFee: number; commissionOneTimePct: number; commissionMonthlyPct: number; assignmentWindowHours: number; contactedRule: 'any_attempt' | 'reached_only'; memberLeadChecksPerMonth: number };
   usage: PlacesUsage;
   placesEnabled: boolean;
 }
@@ -39,7 +39,8 @@ function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => vo
     }
   };
   const [jobTitle, setJobTitle] = useState(u.jobTitle);
-  const patch = async (body: { role?: string; active?: boolean; jobTitle?: string; canReceiveLeads?: boolean }, close = true) => {
+  const [checks, setChecks] = useState(u.leadCheckLimit === null ? '' : String(u.leadCheckLimit));
+  const patch = async (body: { role?: string; active?: boolean; jobTitle?: string; canReceiveLeads?: boolean; leadCheckLimit?: number | null }, close = true) => {
     if (await run(() => api('PATCH', `/users/${u.id}`, { ...body, expectedUpdatedAt: u.updatedAt }))) {
       onSaved();
       if (close) onClose();
@@ -75,6 +76,15 @@ function ManageUser({ u, onClose, onSaved }: { u: ManagedUser; onClose: () => vo
           <Button size="sm" variant="secondary" busy={busy} disabled={jobTitle.trim() === u.jobTitle} onClick={() => patch({ jobTitle: jobTitle.trim() }, false)}>Save</Button>
         </div>
         <Toggle label="Can receive leads" hint="Appears in every assign-to list and earns commission." checked={u.canReceiveLeads} onChange={(v) => patch({ canReceiveLeads: v })} />
+        {u.role === 'employee' && (
+          <div>
+            <div className="flex items-end gap-2">
+              <Field label="Google checks per month" type="number" min={0} inputMode="numeric" placeholder="Default (Settings)" value={checks} onChange={(e) => setChecks(e.target.value)} className="flex-1" />
+              <Button size="sm" variant="secondary" busy={busy} disabled={checks === (u.leadCheckLimit === null ? '' : String(u.leadCheckLimit)) || (checks.trim() !== '' && !(Number.isInteger(Number(checks)) && Number(checks) >= 0))} onClick={() => patch({ leadCheckLimit: checks.trim() === '' ? null : Number(checks) }, false)}>Save</Button>
+            </div>
+            <p className="mt-1.5 text-xs text-fg-3">Checks of leads they added, each lead once a week. Leave empty to use the default for the team.</p>
+          </div>
+        )}
         {u.role !== 'employee' && (
           <MeetLinkField value={u.meetLink ?? ''} onSave={async (meetLink) => { const r = await api('PATCH', `/users/${u.id}`, { meetLink, expectedUpdatedAt: u.updatedAt }); onSaved(); return r; }} />
         )}
@@ -211,6 +221,11 @@ function Rules({ data, onSaved, team }: { data: SettingsData; onSaved: () => voi
             <span className="text-sm text-fg-2">Monthly limit</span>
             <BoxInput aria-label="Monthly limit" type="number" min={0} inputMode="numeric" value={String(f.placesMonthlyCap)} onChange={(e) => setF({ ...f, placesMonthlyCap: Number(e.target.value) })} suffix={<span className="whitespace-nowrap text-xs text-fg-3">calls / month</span>} className="w-48" />
           </div>
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm text-fg-2">Checks per team member</span>
+            <BoxInput aria-label="Google checks per team member per month" type="number" min={0} inputMode="numeric" value={String(f.memberLeadChecksPerMonth)} onChange={(e) => setF({ ...f, memberLeadChecksPerMonth: Number(e.target.value) })} suffix={<span className="whitespace-nowrap text-xs text-fg-3">/ month</span>} className="w-48" />
+          </div>
+          <p className="-mt-2 text-xs text-fg-3">Team members can check the leads they added against Google, each lead once a week. Set a different number for one person in Team.</p>
           <Toggle label="Pause all Google calls" hint="Takes effect at once, even for searches already waiting." checked={f.placesPaused} onChange={(v) => { setF({ ...f, placesPaused: v }); void save({ placesPaused: v }); }} />
           <div className="flex justify-between text-sm"><span className="text-fg-2">Used this month</span><span className="tabular-nums">{data.usage.used} / {data.usage.cap.toLocaleString('en-IN')}</span></div>
           <ProgressBar percent={pct} tone="good" label="Google usage" />

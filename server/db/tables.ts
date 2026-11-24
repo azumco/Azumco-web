@@ -21,7 +21,7 @@ export type ColType = 't' | 'r' | 'ts' | 'd' | 'tm' | 'b' | 'i' | 'n' | 'j';
 const SPEC: Record<TabName, Record<string, ColType>> = {
   Users: {
     email: 't', name: 't', role: 't', active: 'b', passwordHash: 't', mustChangePassword: 'b', failedAttempts: 'i', lockedUntil: 'ts',
-    sessionVersion: 'i', lastLoginAt: 'ts', jobTitle: 't', canReceiveLeads: 'b', calendarColor: 't', meetLink: 't',
+    sessionVersion: 'i', lastLoginAt: 'ts', jobTitle: 't', canReceiveLeads: 'b', calendarColor: 't', meetLink: 't', leadCheckLimit: 't',
   },
   Sessions: { tokenHash: 't', userId: 'r', sessionVersion: 'i', csrfToken: 't', expiresAt: 'ts', ip: 't', userAgent: 't' },
   Settings: { key: 't', value: 't' },

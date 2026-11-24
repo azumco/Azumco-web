@@ -35,6 +35,8 @@ export const publicUser = (u: Row) => ({
   lastLoginAt: u.lastLoginAt || null,
   jobTitle: u.jobTitle ?? '',
   meetLink: u.meetLink ?? '',
+  /** Monthly Google checks for this person; null = the Settings default. */
+  leadCheckLimit: u.leadCheckLimit ? Number(u.leadCheckLimit) : null,
   canReceiveLeads: bool(u.canReceiveLeads),
   calendarColor: u.calendarColor || 'neutral',
   updatedAt: u.updatedAt,
@@ -49,12 +51,14 @@ const patchSchema = z
     canReceiveLeads: z.boolean().optional(),
     /** Founders only; '' clears it. Validated below (format https://meet.google.com/abc-defg-hij). */
     meetLink: z.string().max(200).optional(),
+    /** Monthly Google checks for a team member; null = use the Settings default. */
+    leadCheckLimit: z.number().int().min(0).max(100_000).nullable().optional(),
     expectedUpdatedAt: z.string().optional(),
   })
   // Strict: an "email" (or any other) field is rejected, not silently ignored.
   // There is deliberately no way to change an address through the API.
   .strict()
-  .refine((b) => b.role !== undefined || b.active !== undefined || b.jobTitle !== undefined || b.canReceiveLeads !== undefined || b.meetLink !== undefined, 'Nothing to change.');
+  .refine((b) => b.role !== undefined || b.active !== undefined || b.jobTitle !== undefined || b.canReceiveLeads !== undefined || b.meetLink !== undefined || b.leadCheckLimit !== undefined, 'Nothing to change.');
 
 /** New teammate: super admin only, company domain only, no password until one is issued. */
 const createSchema = z
@@ -158,6 +162,7 @@ export function usersRoutes(db: Db, allowedDomain: string) {
     if (parsed.data.jobTitle !== undefined) patch.jobTitle = parsed.data.jobTitle;
     if (parsed.data.canReceiveLeads !== undefined) patch.canReceiveLeads = boolCell(parsed.data.canReceiveLeads);
     if (parsed.data.meetLink !== undefined) patch.meetLink = checkedMeetLink(parsed.data.meetLink, user.role);
+    if (parsed.data.leadCheckLimit !== undefined) patch.leadCheckLimit = parsed.data.leadCheckLimit === null ? '' : String(parsed.data.leadCheckLimit);
     if (parsed.data.role) patch.role = parsed.data.role;
     if (parsed.data.active !== undefined) {
       patch.active = boolCell(parsed.data.active);
@@ -173,8 +178,8 @@ export function usersRoutes(db: Db, allowedDomain: string) {
       action: 'users.update',
       entity: 'Users',
       entityId: user.id,
-      before: { role: before.role, active: before.active, jobTitle: before.jobTitle, canReceiveLeads: before.canReceiveLeads },
-      after: { role: after.role, active: after.active, jobTitle: after.jobTitle, canReceiveLeads: after.canReceiveLeads, leadsReleased: released },
+      before: { role: before.role, active: before.active, jobTitle: before.jobTitle, canReceiveLeads: before.canReceiveLeads, leadCheckLimit: before.leadCheckLimit ?? '' },
+      after: { role: after.role, active: after.active, jobTitle: after.jobTitle, canReceiveLeads: after.canReceiveLeads, leadCheckLimit: after.leadCheckLimit ?? '', leadsReleased: released },
       ip: req.ip,
     });
     res.json({ user: publicUser(after), leadsReleased: released });
