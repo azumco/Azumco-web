@@ -363,12 +363,12 @@ export function LeadPanel({ id, user, embedded, fullWidth, onChanged }: { id: st
               {lead.timerRunning ? <Countdown expiresAt={lead.expiresAt} now={now} /> : <StatusPill status={lead.status} />}
             </div>
 
-            {lead.origin === 'team' && (lead.googleCheck.status || founder) && (
+            {lead.origin === 'team' && (lead.googleCheck.status || canRunLeadCheck(user, lead)) && (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-line px-4 py-2.5 text-sm">
                 <span className="text-fg-3">Google check</span>
                 <CheckTag lead={lead} />
                 {lead.googleCheck.checkedAt && <span className="text-xs text-fg-3">{formatDate(lead.googleCheck.checkedAt)}{lead.googleCheck.checkedByName ? ` · ${firstName(lead.googleCheck.checkedByName)}` : ''}</span>}
-                {founder && canRunLeadCheck(user) && (
+                {canRunLeadCheck(user, lead) && (
                   <a href={checkPath(lead.id)} onClick={(e) => { e.preventDefault(); navigate(checkPath(lead.id)); }} className="ml-auto min-h-9 py-2 font-medium text-brand">
                     {checkMeta(lead).action || 'Open'} →
                   </a>

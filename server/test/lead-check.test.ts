@@ -4,7 +4,7 @@
 // distinctive strings, so the "never stored" grep is meaningful.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ADMIN_EMAIL, EMPLOYEE_EMAIL, memberClient, startHarness, superAdmin, type Client, type Harness } from './harness.ts';
+import { ADMIN_EMAIL, EMPLOYEE_EMAIL, SUPER, memberClient, startHarness, superAdmin, type Client, type Harness } from './harness.ts';
 import { MemoryBackend } from '../sheets/backend.ts';
 import { testConfig } from './harness.ts';
 import type { CheckPlace, PlaceResult, PlacesClient } from '../places/client.ts';
@@ -74,20 +74,82 @@ async function setup() {
   return { places, owner, admin: admin.client, staff: staff.client, add, used, lead, h: h! };
 }
 
+/** Sessions expire when the fake clock jumps days ahead: sign everyone back in. */
+async function relogin(t: Awaited<ReturnType<typeof setup>>) {
+  await t.owner.login(SUPER.email, 'owner-New-Passw0rd!');
+  await t.admin.login(ADMIN_EMAIL, 'member-Passw0rd-1');
+  await t.staff.login(EMPLOYEE_EMAIL, 'member-Passw0rd-1');
+}
+
 describe('Who and what can be checked', () => {
-  it('team members get 403 on every check action, but can see the status', async () => {
+  it("team members get 403 on leads they didn't add (even ones assigned to them)", async () => {
     const t = await setup();
-    const id = await t.add(t.staff, { businessName: 'Qvx Iron Gym', city: 'Bhopal', phone: '99111 00001' });
+    const staffId = ((await t.owner.req('GET', '/api/users')).body.users as { id: string; email: string }[]).find((u) => u.email === EMPLOYEE_EMAIL)!.id;
+    const assigned = await t.add(t.admin, { businessName: 'Qvx Iron Gym', city: 'Bhopal', assignTo: staffId });
     for (const path of ['', '/pick', '/view', '/apply', '/not-on-google']) {
-      const r = await t.staff.req('POST', `/api/leads/${id}/google-check${path}`, path === '/pick' || path === '/apply' ? { token: 'x'.repeat(20) } : {});
+      const r = await t.staff.req('POST', `/api/leads/${assigned}/google-check${path}`, path === '/pick' || path === '/apply' ? { token: 'x'.repeat(20) } : {});
       expect(r.status, path).toBe(403);
     }
     expect(t.places.calls).toHaveLength(0);
     // A founder checks it; the member then sees the result (codes only).
-    expect((await t.admin.req('POST', `/api/leads/${id}/google-check`, {})).status).toBe(200);
-    const seen = await t.lead(id, t.staff);
+    expect((await t.admin.req('POST', `/api/leads/${assigned}/google-check`, {})).status).toBe(200);
+    const seen = await t.lead(assigned, t.staff);
     expect(seen.origin).toBe('team');
     expect(seen.googleCheck.status).toBe('needs_review');
+  });
+
+  it('team members check leads they added: once a week per lead, within their monthly allowance', async () => {
+    const t = await setup();
+    const staffId = ((await t.owner.req('GET', '/api/users')).body.users as { id: string; email: string }[]).find((u) => u.email === EMPLOYEE_EMAIL)!.id;
+    const iron = await t.add(t.staff, { businessName: 'Qvx Iron Gym', city: 'Bhopal' });
+    const glow = await t.add(t.staff, { businessName: 'Qvx Glow Salon', city: 'Bhopal' });
+    const brew = await t.add(t.staff, { businessName: 'Qvx Brew Cafe', city: 'Indore' });
+
+    let a = (await t.staff.req('GET', '/api/google-check/allowance')).body;
+    expect(a).toMatchObject({ unlimited: false, mine: { used: 0, limit: 100, remaining: 100 }, cooldownDays: 7 });
+    expect((await t.admin.req('GET', '/api/google-check/allowance')).body).toMatchObject({ unlimited: true, mine: null });
+
+    const first = await t.staff.req('POST', `/api/leads/${iron}/google-check`, {});
+    expect(first.status).toBe(200);
+    expect(first.body.calls).toBe(1);
+    // The same lead again within 7 days: refused before any call (also "Show Google's details").
+    const again = await t.staff.req('POST', `/api/leads/${iron}/google-check`, {});
+    expect(again.status).toBe(429);
+    expect(again.body.code).toBe('CHECKED_RECENTLY');
+    expect((await t.staff.req('POST', `/api/leads/${iron}/google-check/view`, {})).body.code).toBe('CHECKED_RECENTLY');
+    expect(t.places.calls).toHaveLength(1);
+    // Saving needs no call and no allowance; confirmation is still required for Google's values.
+    expect((await t.staff.req('POST', `/api/leads/${iron}/google-check/apply`, { token: first.body.google.token, confirmed: false, choices: { phone: 'google' } })).body.code).toBe('CONFIRMATION_REQUIRED');
+    expect((await t.staff.req('POST', `/api/leads/${iron}/google-check/apply`, { token: first.body.google.token, confirmed: true, choices: { phone: 'google' } })).status).toBe(200);
+
+    // After a week it can be checked again.
+    t.h.clock.advance(7 * 86_400_000 + 60_000);
+    await relogin(t);
+    expect((await t.staff.req('POST', `/api/leads/${iron}/google-check`, {})).status).toBe(200);
+    a = (await t.staff.req('GET', '/api/google-check/allowance')).body;
+    expect(a.mine.used).toBe(2);
+
+    // A personal limit of 3 (set by the super admin) overrides the default of 100.
+    const users = (await t.owner.req('GET', '/api/users')).body.users as { id: string; updatedAt: string }[];
+    const me = users.find((u) => u.id === staffId)!;
+    expect((await t.owner.req('PATCH', `/api/users/${staffId}`, { leadCheckLimit: 3, expectedUpdatedAt: me.updatedAt })).status).toBe(200);
+    expect((await t.staff.req('POST', `/api/leads/${glow}/google-check`, {})).status).toBe(200);
+    const over = await t.staff.req('POST', `/api/leads/${brew}/google-check`, {});
+    expect(over.status).toBe(429);
+    expect(over.body.code).toBe('MEMBER_CHECK_LIMIT');
+    expect(t.places.calls).toHaveLength(3);
+    // Founders are not limited by a member's allowance.
+    expect((await t.admin.req('POST', `/api/leads/${brew}/google-check`, {})).status).toBe(200);
+
+    // The Settings default applies again when the personal limit is cleared; 0 stops a member entirely.
+    const me2 = ((await t.owner.req('GET', '/api/users')).body.users as { id: string; updatedAt: string }[]).find((u) => u.id === staffId)!;
+    await t.owner.req('PATCH', `/api/users/${staffId}`, { leadCheckLimit: null, expectedUpdatedAt: me2.updatedAt });
+    await t.owner.req('PUT', '/api/settings', { memberLeadChecksPerMonth: 0 });
+    expect((await t.staff.req('GET', '/api/google-check/allowance')).body.mine).toMatchObject({ limit: 0, remaining: 0 });
+    t.h.clock.advance(8 * 86_400_000);
+    await relogin(t);
+    expect((await t.staff.req('POST', `/api/leads/${glow}/google-check`, {})).body.code).toBe('MEMBER_CHECK_LIMIT');
+    expect(t.places.calls).toHaveLength(4);
   });
 
   it('a lead imported from Find clients is rejected, and makes no call', async () => {

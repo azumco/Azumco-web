@@ -1,7 +1,9 @@
 // Leads → "Google check": which leads the team added match their Google Maps
 // listing. Only leads added by a person can be checked (and ticked); leads from
 // Find clients already come from Google and show a "From Find clients" tag.
-// Founders run checks one at a time (single or bulk); each uses 1 Google call.
+// Founders can check any of them; a team member only the leads they added,
+// once a week per lead and within their monthly allowance. Checks run one at a
+// time (single or bulk); each uses 1 Google call.
 
 import { useMemo, useState } from 'react';
 import { AlertTriangle, Check, Info, MapPin, Search } from 'lucide-react';
@@ -9,8 +11,8 @@ import { ApiError } from '../api';
 import { useApi } from '../hooks';
 import { navigate } from '../router';
 import { Avatar, Button, Checkbox, ChoiceChip, Empty, ErrorText, Tag, cx } from '../ui';
-import { CHECK_FILTERS, checkMeta, checkPath, leftText, runCheck, type CheckFilter } from '../leadCheck';
-import type { Lead, PlacesUsage } from '../types';
+import { ALLOWANCE_PATH, CHECK_FILTERS, canRunLeadCheck, checkMeta, checkPath, checksLeft, leftText, runCheck, type Allowance, type CheckFilter } from '../leadCheck';
+import type { Lead, TeamUser } from '../types';
 
 const ICONS = { check: Check, warn: AlertTriangle, search: Search, pin: MapPin, none: null } as const;
 
@@ -25,11 +27,13 @@ export function CheckTag({ lead }: { lead: Pick<Lead, 'origin' | 'googleCheck'> 
   );
 }
 
-interface Bulk { total: number; done: number; running: boolean; stopped: string; failed: number }
+interface Bulk { total: number; done: number; running: boolean; stopped: string; failed: number; recent: number }
 
-export default function LeadCheckList({ leads, founder, onChanged, q }: { leads: Lead[]; founder: boolean; onChanged: () => void; q: string }) {
-  const status = useApi<{ enabled: boolean; usage: PlacesUsage }>(founder ? '/places/status' : null);
-  const usage = status.data?.usage;
+export default function LeadCheckList({ leads, user, onChanged, q }: { leads: Lead[]; user: TeamUser; onChanged: () => void; q: string }) {
+  const status = useApi<Allowance>(ALLOWANCE_PATH);
+  const usage = status.data ?? undefined;
+  const left = checksLeft(usage);
+  const founder = Boolean(usage?.unlimited);
   const [filter, setFilter] = useState<CheckFilter>('all');
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState<Bulk | null>(null);
@@ -43,7 +47,8 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
       .sort((a, b) => Number(a.origin === 'find_clients') - Number(b.origin === 'find_clients') || b.dateAdded.localeCompare(a.dateAdded));
   }, [leads, filter, q]);
 
-  const checkable = (l: Lead) => founder && l.origin === 'team';
+  const checkable = (l: Lead) => canRunLeadCheck(user, l);
+  const anyCheckable = leads.some(checkable);
   const toggle = (id: string, on: boolean) => setPicked((p) => {
     const n = new Set(p);
     if (on) n.add(id);
@@ -59,7 +64,7 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
   const runBulk = async () => {
     const ids = leads.filter((l) => picked.has(l.id) && checkable(l)).map((l) => l.id);
     if (!ids.length) return;
-    const b: Bulk = { total: ids.length, done: 0, running: true, stopped: '', failed: 0 };
+    const b: Bulk = { total: ids.length, done: 0, running: true, stopped: '', failed: 0, recent: 0 };
     setBulk({ ...b });
     for (const id of ids) {
       try {
@@ -71,11 +76,12 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
           return n;
         });
       } catch (e) {
-        if (e instanceof ApiError && (e.code === 'PLACES_CAP_REACHED' || e.code === 'PLACES_PAUSED' || e.code === 'PLACES_DISABLED')) {
+        if (e instanceof ApiError && ['PLACES_CAP_REACHED', 'PLACES_PAUSED', 'PLACES_DISABLED', 'MEMBER_CHECK_LIMIT'].includes(e.code ?? '')) {
           b.stopped = e.message;
           break;
         }
-        b.failed++;
+        if (e instanceof ApiError && e.code === 'CHECKED_RECENTLY') b.recent++;
+        else b.failed++;
       }
       setBulk({ ...b });
     }
@@ -98,7 +104,7 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
 
   const act = (l: Lead) => {
     const m = checkMeta(l);
-    if (!founder || !m.action) return null;
+    if (!checkable(l) || !m.action) return null;
     return (
       <button type="button" onClick={(e) => { e.stopPropagation(); void (m.action === 'Check' ? checkOne(l) : open(l)); }} className="min-h-11 whitespace-nowrap px-1 text-sm font-medium text-brand hover:underline">
         {m.action}
@@ -120,7 +126,11 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
     <div>
       <p className="mb-5 flex items-start gap-3 rounded-2xl border border-line bg-bg-2 px-4 py-3 text-sm text-fg-2">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-fg-3" />
-        <span>Only leads added by your team can be checked. Leads from Find clients already come from Google, so they don't need it.</span>
+        <span>
+          {founder
+            ? "Only leads added by your team can be checked. Leads from Find clients already come from Google, so they don't need it."
+            : `You can check the leads you added yourself, each one once every ${usage?.cooldownDays ?? 7} days.${usage?.mine ? ` ${leftText(usage)}.` : ''}`}
+        </span>
       </p>
 
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] sm:flex-wrap sm:overflow-visible">
@@ -144,12 +154,12 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
             <table className="w-full table-fixed text-left">
               <thead>
                 <tr className="border-b border-line text-[11px] uppercase tracking-[0.16em] text-fg-3">
-                  {founder && (
+                  {anyCheckable && (
                     <th className="w-14 pl-3 font-normal">
                       <Checkbox checked={allOn} disabled={!visibleCheckable.length} label="Select all team-added leads shown" onChange={(on) => setPicked(on ? new Set([...picked, ...visibleCheckable.map((l) => l.id)]) : new Set([...picked].filter((id) => !visibleCheckable.some((l) => l.id === id))))} />
                     </th>
                   )}
-                  <th className={cx('py-4 font-normal', founder ? 'px-2' : 'px-5')}>Business</th>
+                  <th className={cx('py-4 font-normal', anyCheckable ? 'px-2' : 'px-5')}>Business</th>
                   <th className="w-[19%] px-3 py-4 font-normal lg:w-[15%]">Phone</th>
                   <th className="hidden w-[13%] px-3 py-4 font-normal lg:table-cell">City</th>
                   <th className="hidden w-[16%] px-3 py-4 font-normal xl:table-cell">Added by</th>
@@ -159,12 +169,12 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
               <tbody>
                 {shown.map((l) => (
                   <tr key={l.id} onClick={() => checkable(l) && l.googleCheck.status && open(l)} className={cx('border-b border-line last:border-0', picked.has(l.id) && 'bg-brand/[0.05]', checkable(l) && l.googleCheck.status && 'cursor-pointer hover:bg-bg-3/40')}>
-                    {founder && (
+                    {anyCheckable && (
                       <td className="pl-3" onClick={(e) => e.stopPropagation()}>
                         {checkable(l) ? <Checkbox checked={picked.has(l.id)} label={`Select ${title(l)}`} onChange={(on) => toggle(l.id, on)} /> : null}
                       </td>
                     )}
-                    <td className={cx('min-w-0 py-3.5', founder ? 'px-2' : 'px-5')}>
+                    <td className={cx('min-w-0 py-3.5', anyCheckable ? 'px-2' : 'px-5')}>
                       <a href={`/team/leads/${l.id}`} onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`/team/leads/${l.id}`); }} className={cx('block truncate font-medium', l.origin === 'find_clients' ? 'text-fg-2' : 'text-fg')}>{title(l)}</a>
                       <span className="block truncate text-xs text-fg-3">{sub(l)}</span>
                     </td>
@@ -208,7 +218,7 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
         </>
       )}
 
-      {founder && (picked.size > 0 || bulk) && (
+      {anyCheckable && (picked.size > 0 || bulk) && (
         <div className="sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 mt-5 md:bottom-4">
           <div className="flex flex-col gap-3 rounded-3xl border border-brand/50 bg-bg-2/95 p-4 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:px-5">
             {bulk ? (
@@ -216,6 +226,7 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
                 <p className="font-medium">{bulk.running ? `Checking ${Math.min(bulk.done + bulk.failed + 1, bulk.total)} of ${bulk.total}…` : `Checked ${bulk.done} of ${bulk.total}`}</p>
                 <p className="text-xs text-fg-3">
                   {bulk.stopped ? `Stopped: ${bulk.stopped}` : bulk.failed ? `${bulk.failed} could not be checked. Try them again.` : bulk.running ? 'One at a time, each uses 1 Google call.' : 'Done. Open a lead to review it.'}
+                  {bulk.recent ? ` ${bulk.recent} skipped: checked in the last ${usage?.cooldownDays ?? 7} days.` : ''}
                   {usage && !bulk.running ? ` ${leftText(usage)}.` : ''}
                 </p>
               </div>
@@ -224,8 +235,7 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
                 <p className="font-medium">{picked.size} selected</p>
                 <p className="text-xs text-fg-3">
                   Uses {picked.size} Google call{picked.size === 1 ? '' : 's'}{usage ? ` · ${leftText(usage)}` : ''}.
-                  {usage && usage.remaining < picked.size && !usage.paused ? ` Only the first ${usage.remaining} will run.` : ''}
-                  {usage?.paused ? ' Google calls are paused by the super admin.' : ''}
+                  {usage && left < picked.size && left > 0 ? ` Only the first ${left} will run.` : ''}
                 </p>
               </div>
             )}
@@ -236,7 +246,7 @@ export default function LeadCheckList({ leads, founder, onChanged, q }: { leads:
                 </button>
               )}
               {picked.size > 0 && (
-                <Button onClick={runBulk} busy={bulk?.running} disabled={bulk?.running || usage?.paused || usage?.remaining === 0} className="flex-1 sm:flex-none">
+                <Button onClick={runBulk} busy={bulk?.running} disabled={bulk?.running || left <= 0} className="flex-1 sm:flex-none">
                   <Search className="h-4 w-4" /> Check {picked.size}<span className="hidden sm:inline">&nbsp;with Google</span>
                 </Button>
               )}

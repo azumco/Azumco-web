@@ -14,6 +14,8 @@ export const DEFAULT_SETTINGS = {
   assignmentWindowHours: '24',
   /** 'any_attempt' | 'reached_only' — which call-log entries stop an assignment timer. */
   contactedRule: 'any_attempt',
+  /** "Check against Google": checks each team member may run per IST month (a person's own limit overrides it). */
+  memberLeadChecksPerMonth: '100',
 } as const;
 
 export type SettingKey = keyof typeof DEFAULT_SETTINGS;
@@ -26,6 +28,7 @@ export interface Settings {
   commissionMonthlyPct: number;
   assignmentWindowHours: number;
   contactedRule: 'any_attempt' | 'reached_only';
+  memberLeadChecksPerMonth: number;
 }
 
 /** Parse with safe fallbacks: a garbled cell must never mean "unlimited" or "unpaused". */
@@ -44,6 +47,7 @@ export function parseSettings(raw: Record<string, string>): Settings {
     commissionMonthlyPct: n('commissionMonthlyPct', 0, 100),
     assignmentWindowHours: n('assignmentWindowHours', 1, 24 * 14),
     contactedRule: raw.contactedRule === 'reached_only' ? 'reached_only' : 'any_attempt',
+    memberLeadChecksPerMonth: Math.floor(n('memberLeadChecksPerMonth', 0, 100_000)),
   };
 }
 
@@ -67,6 +71,7 @@ export const settingsPatchSchema = z
     commissionMonthlyPct: z.number().min(0).max(100),
     assignmentWindowHours: z.number().int().min(1).max(24 * 14),
     contactedRule: z.enum(['any_attempt', 'reached_only']),
+    memberLeadChecksPerMonth: z.number().int().min(0).max(100_000),
   })
   .partial()
   .strict();

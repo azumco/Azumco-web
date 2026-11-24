@@ -7,10 +7,23 @@
 
 import { api } from './api';
 import { CHECK_FIELDS, type CheckField, type CheckStatus, type FieldCodes } from '../../shared/leadCheck';
-import type { Lead, PlacesUsage } from './types';
+import type { Lead } from './types';
 import type { TagTone } from './ui';
 
 export { canRunLeadCheck } from '../../shared/leadCheck';
+
+/** What the signed-in person can still run this month (GET /google-check/allowance). */
+export interface Allowance {
+  unlimited: boolean;
+  google: { used: number; cap: number; remaining: number; paused: boolean };
+  /** Team members only: their own monthly checks. */
+  mine: { used: number; limit: number; remaining: number } | null;
+  cooldownDays: number;
+}
+export const ALLOWANCE_PATH = '/google-check/allowance';
+/** Checks the person can still run right now (their allowance, the Google cap, the pause switch). */
+export const checksLeft = (a: Allowance | undefined) =>
+  !a ? Infinity : a.google.paused ? 0 : Math.min(a.google.remaining, a.mine ? a.mine.remaining : Infinity);
 
 export interface PlaceView {
   placeId: string;
@@ -35,7 +48,6 @@ export interface CheckResult {
   candidates?: Offer[];
   query?: string;
   calls: number;
-  usage?: PlacesUsage;
 }
 
 const latest = new Map<string, CheckResult>();
@@ -108,6 +120,10 @@ export function checkMeta(l: Pick<Lead, 'origin' | 'googleCheck'>): { label: str
 
 export const checkPath = (id: string) => `/team/leads/${id}/google`;
 
-/** "412 of 1,000 left this month". */
-export const leftText = (u: PlacesUsage | undefined) =>
-  u ? `${u.remaining.toLocaleString('en-IN')} of ${u.cap.toLocaleString('en-IN')} left this month` : '';
+/** Founders: "412 of 1,000 left this month" (the Google cap). Team members: their own checks. */
+export const leftText = (a: Allowance | undefined) => {
+  if (!a) return '';
+  if (a.google.paused) return 'Google checks are paused by the super admin';
+  if (a.mine) return `${a.mine.remaining.toLocaleString('en-IN')} of your ${a.mine.limit.toLocaleString('en-IN')} checks left this month`;
+  return `${a.google.remaining.toLocaleString('en-IN')} of ${a.google.cap.toLocaleString('en-IN')} left this month`;
+};
