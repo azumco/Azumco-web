@@ -84,6 +84,8 @@ const LEAD_COLUMN: Record<CheckField, string> = {
 };
 
 const DAY = 86_400_000;
+/** "1 Dec 2026" (no leading zero), for messages. */
+const day = (iso: string) => formatDate(iso).replace(/^0/, '');
 
 /** The first day of the next IST month, as an ISO date ("2026-12-01"). */
 export function nextMonthStart(now: Date): string {
@@ -161,7 +163,7 @@ export class LeadCheckService {
       if (!me) throw new HttpError(401, 'Please sign in.');
       const used = this.usedThisMonth(me);
       const limit = await this.memberLimit(me);
-      if (used >= limit) throw new HttpError(429, `You've used all ${limit} of your Google checks this month. They reset on ${formatDate(nextMonthStart(this.db.now()))}.`, 'MEMBER_CHECK_LIMIT');
+      if (used >= limit) throw new HttpError(429, `You've used all ${limit} of your Google checks this month. They reset on ${day(nextMonthStart(this.db.now()))}.`, 'MEMBER_CHECK_LIMIT');
       await this.db.updateUnqueued('Users', me.id, { leadCheckMonth: istYearMonth(this.db.now()), leadCheckUsed: String(used + 1) }, 'system');
     });
   }
@@ -197,7 +199,7 @@ export class LeadCheckService {
     const next = opts.editedSearch ? null : this.nextAllowed(lead);
     if (next) {
       const last = lead.gcLastCallAt || lead.gcCheckedAt;
-      throw new HttpError(429, `This lead was checked on ${formatDate(last)}. You can check it again from ${formatDate(new Date(next).toISOString())}.`, 'CHECKED_RECENTLY');
+      throw new HttpError(429, `This lead was checked on ${day(last)}. You can check it again from ${day(new Date(next).toISOString())}.`, 'CHECKED_RECENTLY');
     }
     if ((await getSettings(this.db, { fresh: true })).placesPaused) throw new HttpError(423, 'Google checks are paused by the super admin.', 'PLACES_PAUSED');
     const member = !isUnlimitedChecker(actor);
