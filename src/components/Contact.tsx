@@ -1,13 +1,28 @@
 import { useState } from 'react';
 import { ArrowUpRight, Check, Copy, Loader2 } from 'lucide-react';
-import { site, serviceOptions } from '../content';
+import { site } from '../content';
+import { SERVICES } from '../services';
 import { Container, Eyebrow, Reveal } from './ui';
+
+/** "I'm interested in": one option per service, then Growth partner and Not sure yet. */
+export const INTEREST_OPTIONS = [
+  ...SERVICES.map((s) => ({ key: s.slug, label: s.formOption })),
+  { key: 'growth-partner', label: 'Growth partner' },
+  { key: 'not-sure', label: 'Not sure yet' },
+];
+const NOT_SURE = INTEREST_OPTIONS[INTEREST_OPTIONS.length - 1].label;
+
+/** The option a link asked for (/?service=<slug>#contact), or "Not sure yet". */
+export function interestFromUrl(search: string): string {
+  const key = new URLSearchParams(search).get('service');
+  return INTEREST_OPTIONS.find((o) => o.key === key)?.label ?? NOT_SURE;
+}
 
 const inputClass =
   'w-full border-b border-line-2 bg-transparent py-3.5 text-fg placeholder:text-fg-3 outline-none transition-colors focus:border-brand';
 
 export default function Contact() {
-  const [form, setForm] = useState({ name: '', email: '', business: '', service: serviceOptions[0], message: '' });
+  const [form, setForm] = useState(() => ({ name: '', email: '', business: '', service: interestFromUrl(window.location.search), message: '' }));
   const [honeypot, setHoneypot] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +157,7 @@ export default function Contact() {
             <div className="border-t border-line p-8 sm:p-12 lg:border-l lg:border-t-0">
               {status === 'sent' ? (
                 <div className="flex h-full flex-col items-start justify-center gap-4 py-16">
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand text-white">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand text-bg">
                     <Check className="h-5 w-5" />
                   </span>
                   <h3 className="text-3xl font-medium tracking-[-0.02em] text-fg">Thanks — message received.</h3>
@@ -169,10 +184,10 @@ export default function Contact() {
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-fg-3">I’m interested in</span>
-                    <select className={`${inputClass} cursor-pointer appearance-none`} value={form.service} onChange={update('service')}>
-                      {serviceOptions.map((o) => (
-                        <option key={o} value={o} className="bg-bg-2">
-                          {o}
+                    <select name="service" className={`${inputClass} cursor-pointer appearance-none`} value={form.service} onChange={update('service')}>
+                      {INTEREST_OPTIONS.map((o) => (
+                        <option key={o.key} value={o.label} className="bg-bg-2">
+                          {o.label}
                         </option>
                       ))}
                     </select>
@@ -192,7 +207,7 @@ export default function Contact() {
                   <button
                     type="submit"
                     disabled={status === 'sending'}
-                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-brand px-6 text-sm font-medium text-white transition-colors hover:bg-brand-2 disabled:opacity-60 sm:w-auto"
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-brand px-6 text-sm font-medium text-bg transition-colors hover:bg-brand-2 disabled:opacity-60 sm:w-auto"
                   >
                     {status === 'sending' ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                     {status === 'sending' ? 'Sending…' : 'Send message'}

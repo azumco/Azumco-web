@@ -81,7 +81,7 @@ export default function LegalPage({ page }: { page: LegalKey }) {
         </Container>
       </main>
 
-      <Footer />
+      <Footer home={false} />
     </div>
   );
 }

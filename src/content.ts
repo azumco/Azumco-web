@@ -13,7 +13,7 @@ export const site = {
 };
 
 export const nav = [
-  { label: 'Services', href: '#services' },
+  { label: 'Services', href: '/services' },
   { label: 'Work', href: '#work' },
   { label: 'Process', href: '#process' },
   { label: 'FAQ', href: '#faq' },
@@ -166,14 +166,4 @@ export const faqs = [
     q: 'Who pays for hosting and domains?',
     a: 'Hosting and domain costs are billed to you directly by the providers, so you only pay what you use. Our fee covers the work.',
   },
-];
-
-export const serviceOptions = [
-  'Website or landing page',
-  'Custom app & IT software',
-  'Video editing & reels',
-  'Marketing & SEO',
-  'Brand identity',
-  'Full digital presence (Build + Grow)',
-  'Not sure yet',
 ];

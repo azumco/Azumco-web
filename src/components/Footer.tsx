@@ -1,17 +1,24 @@
-import { nav, services, site } from '../content';
+import { site } from '../content';
+import { SERVICES } from '../services';
+import { serviceHref, servicesHref } from '../links';
 import { legalLinks } from '../legalLinks';
 import { Logo } from './Nav';
 import { Container } from './ui';
 
-export default function Footer() {
-  // On sub-pages, section links need to point back to the home page
-  const base = typeof window !== 'undefined' && window.location.pathname !== '/' ? '/' : '';
+const GROUPS = [
+  { key: 'build', label: 'Build' },
+  { key: 'grow', label: 'Grow' },
+  { key: 'manage', label: 'Manage' },
+] as const;
+
+export default function Footer({ home = true }: { home?: boolean }) {
+  const link = 'inline-flex min-h-11 items-center text-fg-2 transition-colors hover:text-fg';
   return (
     <footer className="overflow-hidden border-t border-line pt-20">
       <Container>
-        <div className="grid gap-12 md:grid-cols-12">
-          <div className="md:col-span-5">
-            <Logo href={base || '#top'} />
+        <div className="grid gap-12 lg:grid-cols-12">
+          <div className="lg:col-span-4">
+            <Logo href={home ? '#top' : '/'} />
             <p className="mt-5 max-w-xs text-sm leading-relaxed text-fg-2">
               Websites, apps and marketing — built, grown and managed by one team.
             </p>
@@ -20,57 +27,34 @@ export default function Footer() {
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 md:col-span-7">
-            <div>
-              <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">Studio</h3>
-              <ul className="mt-5 space-y-3 text-sm">
-                {nav.map((n) => (
-                  <li key={n.href}>
-                    <a href={base + n.href} className="text-fg-2 transition-colors hover:text-fg">
-                      {n.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">Services</h3>
-              <ul className="mt-5 space-y-3 text-sm">
-                {services.map((s) => (
-                  <li key={s.id}>
-                    <a href={base + '#services'} className="text-fg-2 transition-colors hover:text-fg">
-                      {s.title}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
+          <nav aria-label="Footer" className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-8">
+            {GROUPS.map((g) => (
+              <div key={g.key}>
+                <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">{g.label}</h3>
+                <ul className="mt-3 text-sm">
+                  {SERVICES.filter((s) => s.group === g.key).map((s) => (
+                    <li key={s.slug}>
+                      <a href={serviceHref(s.slug)} className={link}>{s.short}</a>
+                    </li>
+                  ))}
+                  {g.key === 'manage' && (
+                    <li>
+                      <a href={`${servicesHref}#growth-partner`} className={link}>Growth partner</a>
+                    </li>
+                  )}
+                </ul>
+              </div>
+            ))}
             <div>
               <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">Connect</h3>
-              <ul className="mt-5 space-y-3 text-sm">
-                <li>
-                  <a href={`mailto:${site.email}`} className="text-fg-2 transition-colors hover:text-fg">
-                    Email
-                  </a>
-                </li>
-                <li>
-                  <a href={site.whatsapp} target="_blank" rel="noreferrer" className="text-fg-2 transition-colors hover:text-fg">
-                    WhatsApp
-                  </a>
-                </li>
-                <li>
-                  <a href={site.linkedin} target="_blank" rel="noreferrer" className="text-fg-2 transition-colors hover:text-fg">
-                    LinkedIn
-                  </a>
-                </li>
-                <li>
-                  <a href={site.instagram} target="_blank" rel="noreferrer" className="text-fg-2 transition-colors hover:text-fg">
-                    Instagram
-                  </a>
-                </li>
+              <ul className="mt-3 text-sm">
+                <li><a href={`mailto:${site.email}`} className={link}>Email</a></li>
+                <li><a href={site.whatsapp} target="_blank" rel="noreferrer" className={link}>WhatsApp</a></li>
+                <li><a href={site.linkedin} target="_blank" rel="noreferrer" className={link}>LinkedIn</a></li>
+                <li><a href={site.instagram} target="_blank" rel="noreferrer" className={link}>Instagram</a></li>
               </ul>
             </div>
-          </div>
+          </nav>
         </div>
 
         {/* relative z-10: the big AZUMCO wordmark below overflows upward; keep these links on top of it. */}

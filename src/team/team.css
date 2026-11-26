@@ -14,6 +14,8 @@
 @source "./";
 
 :root {
+  /* The public site lightened --fg-3 for contrast; the team area keeps its own. */
+  --fg-3: #6a6761;
   --good: #4ade80;
   --warn: #f5b547;
   --bad: #f87171;
