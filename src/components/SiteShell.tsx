@@ -38,7 +38,7 @@ export default function SiteShell({ children, home = false, current }: { childre
   }, []);
 
   return (
-    <div className="min-h-screen overflow-x-clip bg-bg text-fg">
+    <div className="site min-h-screen overflow-x-clip bg-bg text-fg">
       <Cursor />
       <Nav home={home} current={current} />
       <main>{children}</main>

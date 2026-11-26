@@ -29,13 +29,13 @@ function renderBlock(block: Block, i: number) {
 export default function LegalPage({ page }: { page: LegalKey }) {
   const { title, intro, sections } = legalPages[page];
 
+  // The <title> comes with the pre-rendered page (siteRoutes.tsx).
   useEffect(() => {
-    document.title = `${title} | Azumco`;
     window.scrollTo(0, 0);
   }, [title]);
 
   return (
-    <div className="min-h-screen bg-bg text-fg">
+    <div className="site min-h-screen bg-bg text-fg">
       <header className="sticky top-0 z-50 border-b border-line bg-bg/80 backdrop-blur-xl">
         <Container className="flex h-18 items-center justify-between">
           <Logo href="/" />

@@ -34,6 +34,8 @@ export interface AppDeps {
 }
 
 const NOINDEX = 'noindex, nofollow, noarchive';
+/** The one public host. Other hosts (the Render URL) redirect here; www vs apex is set in Render/DNS. */
+const CANONICAL_ORIGIN = 'https://azumco.com';
 const READY_TIMEOUT_MS = 40_000;
 
 export function createApp({ config, db, ready, staticDir, placesClient }: AppDeps) {
@@ -98,31 +100,55 @@ export function createApp({ config, db, ready, staticDir, placesClient }: AppDep
   app.use('/api', api);
 
   // ── Static site ──────────────────────────────────────────────────────────
+  // Every public page is pre-rendered at build time (scripts/prerender.mjs) to
+  // dist/<path>/index.html; unknown paths get dist/404.html with a real 404.
+  // The team portal keeps the plain app shell (dist/shell.html).
   if (staticDir && existsSync(staticDir)) {
+    const file = (...parts: string[]) => path.join(staticDir, ...parts);
+    const shell = existsSync(file('shell.html')) ? file('shell.html') : file('index.html');
+    const send = (res: Response, f: string, status = 200) => {
+      res.status(status).set('Cache-Control', 'no-cache');
+      res.sendFile(f);
+    };
+    const notFound = (res: Response) => (existsSync(file('404.html')) ? send(res, file('404.html'), 404) : res.status(404).type('text').send('Not found'));
+
+    // One public host: the Render hostname (*.onrender.com) redirects to the
+    // canonical domain. The team portal is left alone on every host.
+    app.use((req, res, next) => {
+      const host = String(req.headers.host ?? '').toLowerCase();
+      if (/\.onrender\.com(:\d+)?$/.test(host) && (req.method === 'GET' || req.method === 'HEAD') && !/^\/team(\/|$)/.test(req.path)) {
+        return res.redirect(301, `${CANONICAL_ORIGIN}${req.originalUrl}`);
+      }
+      next();
+    });
+    // Build files that must never be reachable as pages of their own.
+    app.get(['/index.html', '/shell.html', '/404.html'], (req, res) => (req.path === '/index.html' ? res.redirect(301, '/') : notFound(res)));
+
     // Hashed build assets never change; everything else is revalidated.
     app.use(
       '/assets',
-      express.static(path.join(staticDir, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }),
+      express.static(file('assets'), { immutable: true, maxAge: '1y', fallthrough: false }),
     );
-    // redirect: false — no /services → /services/ redirect; the pre-rendered route below serves it.
+    // redirect: false — directories (e.g. /services) are served by the page route below, never as /services/.
     app.use(express.static(staticDir, { index: false, redirect: false }));
 
     app.get(/^\/team(\/.*)?$/, (_req, res) => {
-      res.set({ 'X-Robots-Tag': NOINDEX, 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-cache' });
-      res.sendFile(path.join(staticDir, 'index.html'));
+      res.set({ 'X-Robots-Tag': NOINDEX, 'X-Frame-Options': 'DENY' });
+      send(res, shell);
     });
-    // Pre-rendered pages (/services, /services/<slug>): their own HTML file,
-    // so crawlers get the content and meta tags. Unknown slugs fall through.
-    app.get(/^\/services(\/[a-z0-9-]+)?\/?$/, (req, res, next) => {
-      const file = path.join(staticDir, ...req.path.split('/').filter(Boolean), 'index.html');
-      if (!existsSync(file)) return next();
-      res.set('Cache-Control', 'no-cache');
-      res.sendFile(file);
-    });
-    // Same as the current host's "/* /index.html 200" rule.
-    app.get(/.*/, (_req, res) => {
-      res.set('Cache-Control', 'no-cache');
-      res.sendFile(path.join(staticDir, 'index.html'));
+
+    app.get(/.*/, (req, res) => {
+      const p = req.path;
+      // One URL per page: drop a trailing slash (keeps the query string).
+      if (p.length > 1 && p.endsWith('/')) {
+        const q = req.originalUrl.slice(req.path.length);
+        // Leading slashes collapsed: "//evil.com/" must never become an off-site redirect.
+        return res.redirect(301, '/' + p.replace(/^\/+/, '').replace(/\/+$/, '') + q);
+      }
+      if (p === '/') return send(res, file('index.html'));
+      const parts = p.split('/').filter(Boolean);
+      if (parts.every((x) => /^[a-z0-9-]+$/.test(x)) && existsSync(file(...parts, 'index.html'))) return send(res, file(...parts, 'index.html'));
+      notFound(res);
     });
   }
 

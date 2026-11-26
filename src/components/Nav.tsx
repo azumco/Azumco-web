@@ -6,17 +6,18 @@ import { nav } from '../content';
 import { contactHref, sectionHref } from '../links';
 import { Container } from './ui';
 
-export function Logo({ href = '#top' }: { href?: string }) {
+export function Logo({ href = '#top', lazy = false }: { href?: string; lazy?: boolean }) {
   return (
     <a href={href} className="flex items-center gap-2.5" aria-label="Azumco — home">
-      <img src={logo} alt="" className="h-8 w-8 object-contain" />
+      <img src={logo} alt="" width={32} height={32} loading={lazy ? 'lazy' : undefined} className="h-8 w-8 object-contain" />
       <span className="text-lg font-bold tracking-[-0.02em] text-fg">Azumco</span>
     </a>
   );
 }
 
 /** Nav links: "Services" is its own page; the rest are sections of the home page. */
-const navHref = (href: string, home: boolean) => (href.startsWith('#') ? sectionHref(href.slice(1), home) : href);
+const navHref = (href: string, home: boolean) =>
+  href === '#work' && !home ? '/work' : href.startsWith('#') ? sectionHref(href.slice(1), home) : href;
 
 export default function Nav({ home = true, current }: { home?: boolean; current?: 'services' }) {
   const [scrolled, setScrolled] = useState(false);

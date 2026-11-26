@@ -1,13 +1,16 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Plus, Check, ArrowRight } from 'lucide-react';
-import { clients, stats, services, engagements, process, faqs } from '../content';
+import { clients, stats, services, engagements, process, faqs, show } from '../content';
 import { Container, Eyebrow, Heading, Reveal } from './ui';
 import { SERVICES } from '../services';
 import { serviceHref, servicesHref } from '../links';
+import { INTERNATIONAL } from '../regions';
 
 /* ---------- Client logos (placeholder wordmarks) ---------- */
 export function Clients() {
+  // Hidden until every name is a verified client (content.ts → show.clientLogos).
+  if (!show.clientLogos) return null;
   const row = [...clients, ...clients];
   return (
     <section className="border-y border-line py-10" aria-label="Clients">
@@ -46,19 +49,20 @@ export function Stats() {
           <Reveal delay={0.1} className="md:col-span-6 md:col-start-7 md:pt-12">
             <p className="text-lg leading-relaxed text-fg-2">
               Most businesses split their digital presence across a developer, an ad agency and someone fixing plugins.
-              We bring all three under one senior team — fewer handoffs, faster work, no finger-pointing.
+              We bring all three under one team — fewer handoffs, faster work, no finger-pointing.
             </p>
           </Reveal>
         </div>
 
-        <div className="mt-20 grid grid-cols-2 gap-px overflow-hidden border-y border-line bg-line lg:grid-cols-4">
+        {/* Numbers only when verified (content.ts → show.stats). */}
+        {show.stats && <div className="mt-20 grid grid-cols-2 gap-px overflow-hidden border-y border-line bg-line lg:grid-cols-4">
           {stats.map((s, i) => (
             <Reveal key={s.label} delay={i * 0.08} className="bg-bg px-1 py-10 sm:px-6">
               <div className="text-4xl font-medium tracking-[-0.03em] text-fg sm:text-5xl">{s.value}</div>
               <div className="mt-2 text-sm text-fg-3">{s.label}</div>
             </Reveal>
           ))}
-        </div>
+        </div>}
       </Container>
     </section>
   );
@@ -287,6 +291,31 @@ export function FAQ() {
             })}
           </div>
         </div>
+      </Container>
+    </section>
+  );
+}
+
+/* ---------- Clients outside India ---------- */
+export function Worldwide() {
+  return (
+    <section aria-labelledby="worldwide-title" className="pb-8">
+      <Container>
+        <Reveal>
+          <div className="flex flex-col gap-6 rounded-3xl border border-line bg-bg-2 p-8 sm:p-10 md:flex-row md:items-center md:justify-between">
+            <div className="max-w-2xl">
+              <Eyebrow>Clients worldwide</Eyebrow>
+              <h2 id="worldwide-title" className="mt-4 text-3xl font-medium tracking-[-0.02em] text-fg sm:text-4xl">
+                Outside India? We work with you <span className="font-serif font-normal italic tracking-normal text-brand">remotely.</span>
+              </h2>
+              <p className="mt-3 text-fg-2">Calls at a time that suits you, written proposals, milestones and async updates.</p>
+            </div>
+            <a href={INTERNATIONAL.path} className="group inline-flex min-h-12 shrink-0 items-center gap-2 self-start rounded-full border border-line-2 px-6 text-sm font-medium text-fg transition-colors hover:border-fg/40 md:self-auto">
+              How remote projects work
+              <ArrowRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+            </a>
+          </div>
+        </Reveal>
       </Container>
     </section>
   );

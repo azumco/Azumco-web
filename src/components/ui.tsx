@@ -37,9 +37,9 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 }
 
 /** Section heading with an optional serif-italic accent word. */
-export function Heading({ children, accent, className = '' }: { children: ReactNode; accent?: string; className?: string }) {
+export function Heading({ children, accent, className = '', as: As = 'h2' }: { children: ReactNode; accent?: string; className?: string; as?: 'h1' | 'h2' }) {
   return (
-    <h2 className={`text-4xl font-medium leading-[1.05] tracking-[-0.03em] text-fg sm:text-5xl md:text-6xl ${className}`}>
+    <As className={`text-4xl font-medium leading-[1.05] tracking-[-0.03em] text-fg sm:text-5xl md:text-6xl ${className}`}>
       {children}
       {accent && (
         <>
@@ -47,7 +47,7 @@ export function Heading({ children, accent, className = '' }: { children: ReactN
           <span className="font-serif font-normal italic tracking-normal text-brand">{accent}</span>
         </>
       )}
-    </h2>
+    </As>
   );
 }
 

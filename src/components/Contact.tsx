@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowUpRight, Check, Copy, Loader2 } from 'lucide-react';
 import { site } from '../content';
 import { SERVICES } from '../services';
@@ -22,7 +22,13 @@ const inputClass =
   'w-full border-b border-line-2 bg-transparent py-3.5 text-fg placeholder:text-fg-3 outline-none transition-colors focus:border-brand';
 
 export default function Contact() {
-  const [form, setForm] = useState(() => ({ name: '', email: '', business: '', service: interestFromUrl(window.location.search), message: '' }));
+  const [form, setForm] = useState({ name: '', email: '', business: '', country: '', callTime: '', service: NOT_SURE, message: '' });
+  // The URL can pre-select the interest (/?service=<slug>#contact). Read after mount, so the
+  // pre-rendered HTML and the first client render match.
+  useEffect(() => {
+    const service = interestFromUrl(window.location.search);
+    if (service !== NOT_SURE) setForm((f) => ({ ...f, service }));
+  }, []);
   const [honeypot, setHoneypot] = useState('');
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -49,10 +55,18 @@ export default function Contact() {
     const email = form.email.trim();
     const business = form.business.trim();
     const message = form.message.trim();
+    const country = form.country.trim();
+    const callTime = form.callTime.trim();
+    let timeZone = '';
+    try {
+      timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch {
+      /* not available */
+    }
 
     if (!name || !email) return setError('Please enter your name and email.');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return setError('Please enter a valid email address.');
-    if (name.length > 100 || email.length > 120 || business.length > 150 || message.length > 4000)
+    if (name.length > 100 || email.length > 120 || business.length > 150 || country.length > 80 || callTime.length > 120 || message.length > 4000)
       return setError('One of the fields is too long.');
 
     const now = Date.now();
@@ -82,11 +96,13 @@ export default function Contact() {
             client_name: name,
             client_email: email,
             business_name: business || 'Not specified',
+            country: country || 'Not specified',
+            call_time: callTime ? `${callTime} (${timeZone || 'time zone not detected'})` : 'Not specified',
             service_interest: form.service,
             project_overview: message || 'No brief provided',
             name,
             email,
-            message: `[Service Interest: ${form.service}] [Business: ${business || 'Not specified'}] ${message || 'No brief provided'}`,
+            message: `[Service Interest: ${form.service}] [Business: ${business || 'Not specified'}] [Country: ${country || 'Not specified'}] [Best time for a call: ${callTime || 'Not specified'}${timeZone ? ` — visitor time zone ${timeZone}` : ''}] ${message || 'No brief provided'}`,
           },
         }),
       });
@@ -133,8 +149,8 @@ export default function Contact() {
                   {copied ? <Check className="h-4 w-4 text-brand" /> : <Copy className="h-4 w-4 text-fg-3 group-hover:text-fg" />}
                 </button>
                 {[
-                  ['WhatsApp', site.whatsapp, 'Message us'],
-                  ['LinkedIn', site.linkedin, 'Azumco Pvt. Ltd.'],
+                  ['WhatsApp', site.whatsapp, site.phone],
+                  ['LinkedIn', site.linkedin, 'Azumco'],
                   ['Instagram', site.instagram, '@azumco'],
                 ].map(([label, href, text]) => (
                   <a
@@ -178,9 +194,20 @@ export default function Contact() {
                       <input className={inputClass} type="email" placeholder="Email *" value={form.email} onChange={update('email')} autoComplete="email" />
                     </label>
                   </div>
+                  <div className="grid gap-6 sm:grid-cols-2">
+                    <label className="block">
+                      <span className="sr-only">Company or website</span>
+                      <input className={inputClass} placeholder="Company or website" value={form.business} onChange={update('business')} autoComplete="organization" />
+                    </label>
+                    <label className="block">
+                      <span className="sr-only">Country</span>
+                      <input className={inputClass} placeholder="Country" value={form.country} onChange={update('country')} autoComplete="country-name" />
+                    </label>
+                  </div>
                   <label className="block">
-                    <span className="sr-only">Company or website</span>
-                    <input className={inputClass} placeholder="Company or website" value={form.business} onChange={update('business')} autoComplete="organization" />
+                    <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-fg-3">Best time for a call, in your time zone</span>
+                    <input className={inputClass} placeholder="e.g. weekdays after 3 pm" value={form.callTime} onChange={update('callTime')} />
+                    <span className="mt-1.5 block text-xs text-fg-3">We&apos;ll reply with a time that works for both of us. Your time zone is added automatically.</span>
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-fg-3">I’m interested in</span>
