@@ -110,6 +110,14 @@ export function createApp({ config, db, ready, staticDir, placesClient }: AppDep
       res.set({ 'X-Robots-Tag': NOINDEX, 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-cache' });
       res.sendFile(path.join(staticDir, 'index.html'));
     });
+    // Pre-rendered pages (/services, /services/<slug>): their own HTML file,
+    // so crawlers get the content and meta tags. Unknown slugs fall through.
+    app.get(/^\/services(\/[a-z0-9-]+)?\/?$/, (req, res, next) => {
+      const file = path.join(staticDir, ...req.path.split('/').filter(Boolean), 'index.html');
+      if (!existsSync(file)) return next();
+      res.set('Cache-Control', 'no-cache');
+      res.sendFile(file);
+    });
     // Same as the current host's "/* /index.html 200" rule.
     app.get(/.*/, (_req, res) => {
       res.set('Cache-Control', 'no-cache');

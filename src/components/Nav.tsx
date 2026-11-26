@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { Menu, X } from 'lucide-react';
 import logo from '../logo-mark.png';
 import { nav } from '../content';
+import { contactHref, sectionHref } from '../links';
 import { Container } from './ui';
 
 export function Logo({ href = '#top' }: { href?: string }) {
@@ -14,7 +15,10 @@ export function Logo({ href = '#top' }: { href?: string }) {
   );
 }
 
-export default function Nav() {
+/** Nav links: "Services" is its own page; the rest are sections of the home page. */
+const navHref = (href: string, home: boolean) => (href.startsWith('#') ? sectionHref(href.slice(1), home) : href);
+
+export default function Nav({ home = true, current }: { home?: boolean; current?: 'services' }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -32,11 +36,16 @@ export default function Nav() {
       }`}
     >
       <Container className="flex h-18 items-center justify-between">
-        <Logo />
+        <Logo href={home ? '#top' : '/'} />
 
         <nav className="hidden items-center gap-9 md:flex" aria-label="Main">
           {nav.map((item) => (
-            <a key={item.href} href={item.href} className="text-sm text-fg-2 transition-colors hover:text-fg">
+            <a
+              key={item.href}
+              href={navHref(item.href, home)}
+              aria-current={current === 'services' && item.href === '/services' ? 'page' : undefined}
+              className={`text-sm transition-colors hover:text-fg ${current === 'services' && item.href === '/services' ? 'text-fg' : 'text-fg-2'}`}
+            >
               {item.label}
             </a>
           ))}
@@ -44,15 +53,15 @@ export default function Nav() {
 
         <div className="flex items-center gap-3">
           <a
-            href="#contact"
-            className="hidden min-h-10 items-center rounded-full bg-fg px-5 text-sm font-medium text-bg transition-colors hover:bg-brand hover:text-white sm:inline-flex"
+            href={contactHref(undefined, home)}
+            className="hidden min-h-10 items-center rounded-full bg-fg px-5 text-sm font-medium text-bg transition-colors hover:bg-brand hover:text-bg sm:inline-flex"
           >
             Book a call
           </a>
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-line-2 text-fg md:hidden"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-line-2 text-fg md:hidden"
             aria-label={open ? 'Close menu' : 'Open menu'}
             aria-expanded={open}
           >
@@ -74,7 +83,7 @@ export default function Nav() {
               {nav.map((item) => (
                 <a
                   key={item.href}
-                  href={item.href}
+                  href={navHref(item.href, home)}
                   onClick={() => setOpen(false)}
                   className="border-b border-line py-4 text-2xl font-medium tracking-tight text-fg"
                 >
@@ -82,9 +91,9 @@ export default function Nav() {
                 </a>
               ))}
               <a
-                href="#contact"
+                href={contactHref(undefined, home)}
                 onClick={() => setOpen(false)}
-                className="mt-5 inline-flex min-h-12 items-center justify-center rounded-full bg-brand text-sm font-medium text-white"
+                className="mt-5 inline-flex min-h-12 items-center justify-center rounded-full bg-brand text-sm font-medium text-bg"
               >
                 Book a call
               </a>

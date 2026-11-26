@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { Plus, Check } from 'lucide-react';
+import { Plus, Check, ArrowRight } from 'lucide-react';
 import { clients, stats, services, engagements, process, faqs } from '../content';
 import { Container, Eyebrow, Heading, Reveal } from './ui';
+import { SERVICES } from '../services';
+import { serviceHref, servicesHref } from '../links';
 
 /* ---------- Client logos (placeholder wordmarks) ---------- */
 export function Clients() {
@@ -104,7 +106,7 @@ export function Services() {
                   </span>
                   <span
                     className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-all duration-300 ${
-                      isOpen ? 'rotate-45 border-brand bg-brand text-white' : 'border-line-2 text-fg-2'
+                      isOpen ? 'rotate-45 border-brand bg-brand text-bg' : 'border-line-2 text-fg-2'
                     }`}
                   >
                     <Plus className="h-4 w-4" />
@@ -121,11 +123,14 @@ export function Services() {
                     >
                       <div className="grid gap-8 pb-10 sm:pl-[4.5rem] md:grid-cols-2">
                         <p className="max-w-md text-lg leading-relaxed text-fg-2">{s.summary}</p>
-                        <ul className="grid gap-3">
-                          {s.items.map((item) => (
-                            <li key={item} className="flex items-center gap-3 text-fg">
-                              <span className="h-1 w-1 rounded-full bg-brand" />
-                              {item}
+                        <ul className="grid gap-1">
+                          {SERVICES.filter((x) => x.group === s.id).map((x) => (
+                            <li key={x.slug}>
+                              <a href={serviceHref(x.slug)} className="group inline-flex min-h-11 items-center gap-3 text-fg transition-colors hover:text-brand">
+                                <span className="h-1 w-1 rounded-full bg-brand" />
+                                {x.name}
+                                <ArrowRight aria-hidden="true" className="h-4 w-4 text-fg-3 transition-transform group-hover:translate-x-0.5 group-hover:text-brand motion-reduce:transition-none" />
+                              </a>
                             </li>
                           ))}
                         </ul>
@@ -136,6 +141,12 @@ export function Services() {
               </div>
             );
           })}
+        </div>
+        <div className="mt-10">
+          <a href={servicesHref} className="group inline-flex min-h-12 items-center gap-2 rounded-full border border-line-2 px-6 text-sm font-medium text-fg transition-colors hover:border-fg/40 hover:bg-white/[0.03]">
+            See all services
+            <ArrowRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+          </a>
         </div>
       </Container>
     </section>
@@ -165,7 +176,7 @@ export function Engagements() {
                 <div className="flex items-center justify-between">
                   <h3 className="text-2xl font-medium tracking-[-0.02em] text-fg">{e.title}</h3>
                   {e.featured && (
-                    <span className="rounded-full bg-brand px-3 py-1 text-xs font-medium text-white">Most chosen</span>
+                    <span className="rounded-full bg-brand px-3 py-1 text-xs font-medium text-bg">Most chosen</span>
                   )}
                 </div>
                 <p className="mt-4 leading-relaxed text-fg-2">{e.body}</p>
