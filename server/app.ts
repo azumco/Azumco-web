@@ -104,7 +104,8 @@ export function createApp({ config, db, ready, staticDir, placesClient }: AppDep
       '/assets',
       express.static(path.join(staticDir, 'assets'), { immutable: true, maxAge: '1y', fallthrough: false }),
     );
-    app.use(express.static(staticDir, { index: false }));
+    // redirect: false — no /services → /services/ redirect; the pre-rendered route below serves it.
+    app.use(express.static(staticDir, { index: false, redirect: false }));
 
     app.get(/^\/team(\/.*)?$/, (_req, res) => {
       res.set({ 'X-Robots-Tag': NOINDEX, 'X-Frame-Options': 'DENY', 'Cache-Control': 'no-cache' });
