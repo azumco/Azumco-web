@@ -1,4 +1,8 @@
+# azumco.com — the public site is open to all crawlers.
+# The team portal and its API are private and never indexed.
 User-agent: *
 Allow: /
+Disallow: /team
+Disallow: /api/
 
 Sitemap: https://azumco.com/sitemap.xml

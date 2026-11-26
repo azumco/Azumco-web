@@ -325,7 +325,7 @@ export const privacy: Section[] = [
     body: [
       {
         list: [
-          'Information you give us through the contact form: your name, email address, company or website, the service you are interested in, and your message.',
+          'Information you give us through the contact form: your name, email address, company or website, country, the service you are interested in, the best time for a call, and your message. The form also adds your device’s time zone (for example “Asia/Dubai”) so we can suggest a call time; it is sent only with your message.',
           'Information you share when you email, call or message us on WhatsApp, LinkedIn or Instagram.',
           'For clients: billing details, GST information and project-related information needed to deliver our services.',
           'A small record stored in your own browser (localStorage) of when you last submitted the form, used only to prevent spam. It is not sent to us.',

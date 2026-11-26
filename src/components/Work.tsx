@@ -2,20 +2,23 @@ import { ArrowUpRight } from 'lucide-react';
 import { projects, type Project } from '../content';
 import { Container, Eyebrow, Heading, Reveal } from './ui';
 
-function Cover({ project }: { project: Project }) {
+function Cover({ project, eager }: { project: Project; eager?: boolean }) {
   return (
     <img
       src={project.image}
       alt={`${project.name} website`}
+      width={project.width}
+      height={project.height}
       className="absolute inset-0 h-full w-full object-cover object-center"
-      loading="lazy"
+      loading={eager ? 'eager' : 'lazy'}
       decoding="async"
       referrerPolicy="no-referrer"
     />
   );
 }
 
-function Card({ project, large }: { project: Project; large?: boolean }) {
+function Card({ project, large, eager, level = 'h3' }: { project: Project; large?: boolean; eager?: boolean; level?: 'h2' | 'h3' }) {
+  const H = level;
   const Tag = project.url ? 'a' : 'div';
   return (
     <Tag
@@ -29,15 +32,15 @@ function Card({ project, large }: { project: Project; large?: boolean }) {
         }`}
       >
         <div className="absolute inset-0 transition-transform duration-700 ease-[cubic-bezier(.22,1,.36,1)] group-hover:scale-[1.04]">
-          <Cover project={project} />
+          <Cover project={project} eager={eager} />
         </div>
       </div>
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 className="flex items-center gap-2 text-xl font-medium tracking-[-0.02em] text-fg">
+          <H className="flex items-center gap-2 text-xl font-medium tracking-[-0.02em] text-fg">
             {project.name}
             {project.url && <ArrowUpRight className="h-4 w-4 text-fg-3 transition-colors group-hover:text-brand" />}
-          </h3>
+          </H>
           <p className="mt-1 text-sm text-fg-2">{project.tagline}</p>
         </div>
         <div className="flex flex-wrap gap-1.5 sm:max-w-[45%] sm:justify-end">
@@ -52,16 +55,16 @@ function Card({ project, large }: { project: Project; large?: boolean }) {
   );
 }
 
-export default function Work() {
+export default function Work({ page = false }: { page?: boolean }) {
   const [first, ...rest] = projects;
 
   return (
-    <section id="work" className="relative scroll-mt-20 py-24 sm:py-32">
+    <section id="work" className={`relative scroll-mt-20 ${page ? 'pb-24 pt-32 sm:pb-32 sm:pt-40' : 'py-24 sm:py-32'}`}>
       <Container>
         <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
           <Reveal>
             <Eyebrow>Selected work</Eyebrow>
-            <Heading className="mt-6" accent="in production.">
+            <Heading className="mt-6" accent="in production." as={page ? 'h1' : 'h2'}>
               Recent projects,
             </Heading>
           </Reveal>
@@ -72,11 +75,11 @@ export default function Work() {
 
         <div className="mt-16 grid gap-x-6 gap-y-16 md:grid-cols-2">
           <Reveal className="md:col-span-2">
-            <Card project={first} large />
+            <Card project={first} large eager={page} level={page ? 'h2' : 'h3'} />
           </Reveal>
           {rest.map((p, i) => (
             <Reveal key={p.name} delay={i * 0.1}>
-              <Card project={p} />
+              <Card project={p} level={page ? 'h2' : 'h3'} />
             </Reveal>
           ))}
         </div>

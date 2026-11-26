@@ -134,7 +134,7 @@ export default function ServicePage({ service: s }: { service: Service }) {
                 <li key={w.name}>
                   <a href={p.url} target="_blank" rel="noreferrer" className="group block overflow-hidden rounded-2xl border border-line bg-bg transition-colors hover:border-line-2">
                     <span className="block aspect-[5/3] overflow-hidden bg-bg-3">
-                      <img src={p.image} alt={`${p.name} website`} loading="lazy" decoding="async" width="800" height="480" className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-[1.03] motion-reduce:transition-none" />
+                      <img src={p.image} alt={`${p.name} website`} loading="lazy" decoding="async" width={p.width} height={p.height} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-[1.03] motion-reduce:transition-none" />
                     </span>
                     <span className="block p-6">
                       <span className="flex items-center gap-2 font-medium text-fg">{p.name}<ExternalLink aria-hidden="true" className="h-3.5 w-3.5 text-fg-3" /></span>

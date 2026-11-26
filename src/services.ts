@@ -141,9 +141,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Website or landing page',
     seo: {
-      title: 'Websites & landing pages in Ujjain & across India | Azumco',
+      title: 'Websites & landing pages for clients worldwide | Azumco',
       description:
-        'Custom-designed websites that load fast, look right on every phone and turn visitors into calls and enquiries. Azumco, Ujjain, Madhya Pradesh.',
+        'Custom-designed websites that load fast, look right on every phone and turn visitors into calls and enquiries. By Azumco, a remote-first digital studio.',
     },
   },
   {
@@ -230,9 +230,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Mobile app',
     seo: {
-      title: 'Mobile apps in Ujjain & across India | Azumco',
+      title: 'Mobile apps for clients worldwide | Azumco',
       description:
-        'Apps for iOS and Android that are simple to use, quick to load and built around what your customers need to do. Azumco, Ujjain, Madhya Pradesh.',
+        'Apps for iOS and Android that are simple to use, quick to load and built around what your customers need to do. By Azumco, a remote-first digital studio.',
     },
   },
   {
@@ -323,9 +323,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Custom software',
     seo: {
-      title: 'Custom software & portals in Ujjain & across India | Azumco',
+      title: 'Custom software & portals for clients worldwide | Azumco',
       description:
-        'Dashboards, client portals and internal tools built around how your team actually works — not the other way round. Azumco, Ujjain, Madhya Pradesh.',
+        'Dashboards, client portals and internal tools built around how your team actually works — not the other way round. By Azumco, a remote-first digital studio.',
     },
   },
   {
@@ -406,9 +406,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Automation & integrations',
     seo: {
-      title: 'Automation & integrations in Ujjain & across India | Azumco',
+      title: 'Automation & integrations for clients worldwide | Azumco',
       description:
-        'Connect the tools you already use and let repetitive work run on its own — fewer mistakes and more hours back. Azumco, Ujjain, Madhya Pradesh.',
+        'Connect the tools you already use and let repetitive work run on its own — fewer mistakes and more hours back. By Azumco, a remote-first digital studio.',
     },
   },
 
@@ -496,9 +496,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Google visibility (SEO)',
     seo: {
-      title: 'Google visibility in Ujjain & across India | Azumco',
+      title: 'Google visibility for clients worldwide | Azumco',
       description:
-        'Show up when people nearby search for what you do on Google Search and Google Maps, and turn searches into calls. Azumco, Ujjain, Madhya Pradesh.',
+        'Show up when people nearby search for what you do on Google Search and Google Maps, and turn searches into calls. By Azumco, a remote-first digital studio.',
     },
   },
   {
@@ -588,9 +588,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Social media management',
     seo: {
-      title: 'Social media management in Ujjain & across India | Azumco',
+      title: 'Social media management for clients worldwide | Azumco',
       description:
-        'Consistent, on-brand posts and reels every month — planned, designed, written and published while you run the business. Azumco, Ujjain, Madhya Pradesh.',
+        'Consistent, on-brand posts and reels every month — planned, designed, written and published while you run the business. By Azumco, a remote-first studio.',
     },
   },
   {
@@ -680,9 +680,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Paid ads',
     seo: {
-      title: 'Paid ads — Meta & Google in Ujjain & across India | Azumco',
+      title: 'Paid ads — Meta & Google for clients worldwide | Azumco',
       description:
-        'Ads on Instagram, Facebook and Google that reach the right people, bring in real leads and show what your money did. Azumco, Ujjain, Madhya Pradesh.',
+        'Ads on Instagram, Facebook and Google that reach the right people, bring in real leads and show what your money did. By Azumco, a remote-first digital studio.',
     },
   },
   {
@@ -768,9 +768,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Branding & design',
     seo: {
-      title: 'Branding & design in Ujjain & across India | Azumco',
+      title: 'Branding & design for clients worldwide | Azumco',
       description:
-        'A logo and look people remember, plus a simple system so your brand looks the same on web, social and print. Azumco, Ujjain, Madhya Pradesh.',
+        'A logo and look people remember, plus a simple system so your brand looks the same on web, social and print. By Azumco, a remote-first digital studio.',
     },
   },
   {
@@ -855,9 +855,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Video & motion',
     seo: {
-      title: 'Video & motion in Ujjain & across India | Azumco',
+      title: 'Video & motion for clients worldwide | Azumco',
       description:
-        'Reels, logo animations and ad videos that stop the scroll and explain what you do in seconds. Video and motion by Azumco, Ujjain, Madhya Pradesh.',
+        'Reels, logo animations and ad videos that stop the scroll and explain what you do in seconds. Video and motion by Azumco, a remote-first digital studio.',
     },
   },
 
@@ -944,9 +944,9 @@ export const SERVICES: Service[] = [
     },
     formOption: 'Website care & maintenance',
     seo: {
-      title: 'Website care & maintenance in Ujjain & across India | Azumco',
+      title: 'Website care & maintenance for clients worldwide | Azumco',
       description:
-        'We look after your website every month — updates, backups, monitoring and small changes — so it stays fast and safe. Azumco, Ujjain, Madhya Pradesh.',
+        'We look after your website every month — updates, backups, monitoring and small changes — so it stays fast and safe. By Azumco, a remote-first digital studio.',
     },
   },
 ];
@@ -959,7 +959,7 @@ export const HUB = {
   seo: {
     title: 'Services — websites, apps, marketing & care | Azumco',
     description:
-      'Websites, mobile apps, custom software, automation, Google visibility, social media, ads, branding, video and website care — Azumco, Ujjain, Madhya Pradesh.',
+      'Websites, mobile apps, custom software, automation, Google visibility, social media, ads, branding, video and website care, from Azumco, a remote-first studio.',
   },
   hero: {
     kicker: 'Services — Build · Grow · Manage',

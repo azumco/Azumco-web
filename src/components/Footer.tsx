@@ -1,6 +1,7 @@
 import { site } from '../content';
 import { SERVICES } from '../services';
 import { serviceHref, servicesHref } from '../links';
+import { INDIA, INTERNATIONAL, PUBLISHED_MARKETS } from '../regions';
 import { legalLinks } from '../legalLinks';
 import { Logo } from './Nav';
 import { Container } from './ui';
@@ -18,16 +19,16 @@ export default function Footer({ home = true }: { home?: boolean }) {
       <Container>
         <div className="grid gap-12 lg:grid-cols-12">
           <div className="lg:col-span-4">
-            <Logo href={home ? '#top' : '/'} />
+            <Logo href={home ? '#top' : '/'} lazy />
             <p className="mt-5 max-w-xs text-sm leading-relaxed text-fg-2">
               Websites, apps and marketing — built, grown and managed by one team.
             </p>
             <p className="mt-3 text-xs text-fg-3">
-              Serving Ujjain, Indore, Bhopal &amp; businesses across Madhya Pradesh and India.
+              A remote-first digital studio from India, working with clients worldwide.
             </p>
           </div>
 
-          <nav aria-label="Footer" className="grid grid-cols-2 gap-8 sm:grid-cols-4 lg:col-span-8">
+          <nav aria-label="Footer" className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:col-span-8 lg:grid-cols-5">
             {GROUPS.map((g) => (
               <div key={g.key}>
                 <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">{g.label}</h3>
@@ -45,6 +46,17 @@ export default function Footer({ home = true }: { home?: boolean }) {
                 </ul>
               </div>
             ))}
+            <div>
+              <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">Company</h3>
+              <ul className="mt-3 text-sm">
+                <li><a href="/work" className={link}>Work</a></li>
+                <li><a href={INTERNATIONAL.path} className={link}>Work with us from anywhere</a></li>
+                <li><a href={INDIA.path} className={link}>India</a></li>
+                {PUBLISHED_MARKETS.map((m) => (
+                  <li key={m.slug}><a href={m.path} className={link}>{m.hero.eyebrow}</a></li>
+                ))}
+              </ul>
+            </div>
             <div>
               <h3 className="text-xs uppercase tracking-[0.18em] text-fg-3">Connect</h3>
               <ul className="mt-3 text-sm">

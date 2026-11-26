@@ -1,11 +1,14 @@
 // All site copy lives here so it can be edited without touching layout code.
-import risoniqImg from './assets/images/risoniq_showcase_1795008583466.jpg';
-import infranestImg from './assets/images/infranest_showcase_1795008583588.jpg';
-import ebsMediaImg from './assets/images/ebs_media_showcase_1795008584164.jpg';
+import risoniqImg from './assets/images/risoniq_showcase_1795008583466.webp';
+import infranestImg from './assets/images/infranest_showcase_1795008583588.webp';
+import ebsMediaImg from './assets/images/ebs_media_showcase_1795008584164.webp';
 
 export const site = {
   name: 'Azumco',
-  legalName: 'Azumco Pvt. Ltd.',
+  /** Shown as the legal name everywhere until incorporation is complete. */
+  legalName: 'Azumco',
+  /** WhatsApp / phone, international format. */
+  phone: '+91 94794 75194',
   email: 'contact.azumco@gmail.com',
   whatsapp: 'https://wa.me/919479475194',
   linkedin: 'https://www.linkedin.com/company/azumco-pvt-ltd/posts/?feedView=all',
@@ -19,7 +22,17 @@ export const nav = [
   { label: 'FAQ', href: '#faq' },
 ];
 
-// PLACEHOLDER — replace with real client names/logos.
+/**
+ * Trust switches. Both OFF until every item is verified: the logo strip
+ * ("Trusted by teams who ship") and the stats row. Turn one on only when its
+ * entries below are real, verified client names / numbers.
+ */
+export const show = {
+  clientLogos: false,
+  stats: false,
+};
+
+// PLACEHOLDER — replace with real client names/logos (hidden while show.clientLogos is false).
 export const clients = [
   'Northwind',
   'Lumen & Co',
@@ -31,7 +44,7 @@ export const clients = [
   'Sora Health',
 ];
 
-// PLACEHOLDER — replace with real numbers.
+// PLACEHOLDER — replace with real numbers (hidden while show.stats is false).
 export const stats = [
   { value: '40+', label: 'Projects shipped' },
   { value: '25+', label: 'Clients served' },
@@ -56,7 +69,7 @@ export const services = [
     title: 'Grow',
     summary: 'Put your brand where customers are already looking — and give them a reason to stay.',
     items: [
-      'Local & technical SEO (Ujjain, MP & India)',
+      'Local & technical SEO',
       'Google & Meta ad campaigns',
       'Brand identity & visual systems',
       'Video editing, reels & social content',
@@ -82,6 +95,9 @@ export type Project = {
   tags: string[];
   url: string;
   image: string;
+  /** Intrinsic size of the image (for width/height attributes, no layout shift). */
+  width: number;
+  height: number;
 };
 
 // The first project is shown as the large featured card.
@@ -94,6 +110,8 @@ export const projects: Project[] = [
     tags: ['Framer', 'UI/UX Design', 'Copywriting'],
     url: 'https://www.risoniq.ai/',
     image: risoniqImg,
+    width: 1200,
+    height: 670,
   },
   {
     name: 'Infra Nest IT Solutions',
@@ -103,6 +121,8 @@ export const projects: Project[] = [
     tags: ['React', 'Node.js', 'Three.js', 'Tailwind CSS v4', 'Drizzle ORM'],
     url: 'https://infranestit.com/',
     image: infranestImg,
+    width: 1200,
+    height: 896,
   },
   {
     name: 'EBS Media',
@@ -112,6 +132,8 @@ export const projects: Project[] = [
     tags: ['Framer', 'UI/UX Design', 'Marketing Graphics'],
     url: 'https://ebs-media.framer.website/',
     image: ebsMediaImg,
+    width: 1200,
+    height: 896,
   },
 ];
 
@@ -147,8 +169,8 @@ export const faqs = [
     a: 'Both. We can build your website or app from scratch and then handle the marketing that brings customers to it.',
   },
   {
-    q: 'Do you work with clients in Ujjain, Indore and across Madhya Pradesh?',
-    a: 'Yes. We are based in Ujjain, Madhya Pradesh and work closely with businesses across Indore, Bhopal, MP and India — for websites, IT systems, video editing and digital marketing.',
+    q: 'Do you work with clients outside India?',
+    a: 'Yes. We are a remote-first studio based in India and work with you wherever you are: calls, proposals, milestones and updates all happen online.',
   },
   {
     q: 'How much will it cost?',
