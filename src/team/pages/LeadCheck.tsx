@@ -252,6 +252,149 @@ function Linked({ lead, place, calls, usage, compact }: { lead: Lead; place: { m
   );
 }
 
+
+// ─── A lead checked earlier (Google's details are not kept) ─────────────────
+// Same layouts as the "matches" (02), "differences" (03) and "pick" (04)
+// frames, built from what we do keep: the lead's own values, the per-field
+// result codes, the linked place (Maps link) and who checked it when.
+
+const day = (iso: string) => formatDate(iso).replace(/^0/, '').replace(/\s\d{4}$/, '');
+
+function StoredView({ lead, usage, busy, onShow, onSearch }: { lead: Lead; usage?: PlacesUsage; busy: string; onShow: () => void; onSearch: () => void }) {
+  const gc = lead.googleCheck;
+  const nextAt = gc.nextCheckAt && Date.parse(gc.nextCheckAt) > Date.now() ? gc.nextCheckAt : null;
+  const blocked = checksLeft(usage) <= 0;
+  const when = gc.checkedAt ? `${day(gc.checkedAt)}${gc.checkedByName ? ` by ${gc.checkedByName}` : ''}` : '';
+  const note = nextAt ? `You can check this again from ${day(nextAt)}` : 'Uses 1 Google call';
+
+  if (gc.status === 'pick') {
+    const ours = ourSide(lead as unknown as Record<string, string>);
+    return (
+      <div className="space-y-5">
+        <Banner tone="info" icon={<Search className="h-5 w-5" />} title={`Google found ${gc.candidates} business${gc.candidates === 1 ? '' : 'es'} that could be this one`}>
+          Google&apos;s details aren&apos;t kept, so seeing them again is a fresh search. Then pick the right one and we&apos;ll compare it.
+        </Banner>
+        <div className="flex items-center gap-3 rounded-3xl border border-line bg-bg-2 px-4 py-3.5 sm:px-5">
+          <Avatar name={lead.addedByName || '?'} tone="violet" />
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-[0.16em] text-fg-3">What your team added</p>
+            <p className="break-words text-sm text-fg sm:text-base">{[ours.businessName, ours.phone, [ours.area, ours.city].filter(Boolean).join(', ')].filter(Boolean).join(' · ')}</p>
+          </div>
+        </div>
+        <div className="flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-fg-3">{when && `Searched ${when}`}</p>
+          <div className="flex flex-col items-start gap-1 sm:items-end">
+            <Button busy={busy === 'check'} disabled={Boolean(busy) || blocked} onClick={onSearch}><Search className="h-4 w-4" /> Show the matches again</Button>
+            <CallNote usage={usage} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const codes = gc.fields!;
+  const open = CHECK_FIELDS.filter((f) => codes[f] === 'different' || codes[f] === 'google_only');
+  const showButton = (
+    <div className="flex flex-col items-start gap-1 sm:items-end">
+      <Button variant="secondary" size="sm" busy={busy === 'view'} disabled={Boolean(busy) || blocked || Boolean(nextAt)} onClick={onShow}>
+        <Search className="h-4 w-4" /> Show Google&apos;s details
+      </Button>
+      <span className="text-[11px] text-fg-3">{note}</span>
+    </div>
+  );
+
+  // 02 · Everything matches
+  if (!open.length) {
+    return (
+      <div className="space-y-6">
+        <Banner tone="good" icon={<Check className="h-5 w-5" />} title="Everything matches Google">
+          What your team added is the same as the Google Maps listing.
+        </Banner>
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start">
+          <section className="overflow-hidden rounded-3xl border border-line bg-bg-2">
+            <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+              <p className="font-medium">What your team added</p>
+              <span className="inline-flex items-center gap-1 rounded-full bg-good/12 px-2.5 py-1 text-xs font-medium text-good"><Check className="h-3 w-3" />Same as Google</span>
+            </div>
+            {CHECK_FIELDS.map((f) => (
+              <div key={f} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-5 py-3.5 last:border-0 sm:grid-cols-[150px_minmax(0,1fr)_auto]">
+                <span className="col-span-2 text-[11px] uppercase tracking-[0.16em] text-fg-3 sm:col-span-1">{CHECK_FIELD_LABEL[f]}</span>
+                <span className={cx('min-w-0 break-words', oursValue(lead, f) ? 'text-fg' : 'text-fg-3')}>{oursValue(lead, f) || 'Not added'}</span>
+                {codes[f] === 'same' ? <SameMark /> : <span className="text-xs text-fg-3">{codes[f] === 'ours_only' ? 'Only ours' : '—'}</span>}
+              </div>
+            ))}
+          </section>
+          <section className="rounded-3xl border border-line bg-bg-2 p-5">
+            <p className="flex items-center gap-2 font-medium"><MapPin className="h-4 w-4 text-fg-3" /> Linked to Google Maps</p>
+            <p className="mt-2 text-sm text-fg-2">This lead is linked to its Google Maps listing, so you can check it again any time.</p>
+            {gc.mapsUrl && <a href={gc.mapsUrl} target="_blank" rel="noreferrer noopener" className="mt-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-brand">Open in Google Maps <ExternalLink className="h-3.5 w-3.5" /></a>}
+            <div className="mt-3 rounded-2xl bg-bg-3/60 px-4 py-3 text-xs text-fg-3">
+              <p>{when ? `Checked ${when}` : 'Checked earlier'}</p>
+              <p>{nextAt ? `Next check from ${day(nextAt)}` : 'Checking again uses 1 Google call'}</p>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
+
+  // 03 · Differences side by side (stacked on phones)
+  const t = tally(codes);
+  const summary = [t.different ? `${t.different} difference${t.different === 1 ? '' : 's'}` : '', t.googleOnly ? `${t.googleOnly} detail${t.googleOnly === 1 ? '' : 's'} only Google has` : ''].filter(Boolean).join(', and ');
+  const reviewed = gc.status === 'reviewed';
+  return (
+    <div className="space-y-6">
+      <Banner tone={reviewed ? 'info' : 'warn'} icon={reviewed ? <Check className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />} title={reviewed ? `Reviewed — ${summary}` : summary.charAt(0).toUpperCase() + summary.slice(1)}>
+        {reviewed ? 'You kept your team’s details. ' : ''}Google&apos;s details aren&apos;t kept. Show them again to compare and choose what to keep.
+      </Banner>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <section className="overflow-hidden rounded-3xl border border-line bg-bg-2">
+          <header className="flex items-center gap-3 border-b border-line px-5 py-4">
+            <Avatar name={lead.addedByName || '?'} tone="violet" />
+            <div className="min-w-0"><p className="font-medium">What your team added</p><p className="truncate text-xs text-fg-3">{[lead.addedByName, lead.dateAdded && day(lead.dateAdded)].filter(Boolean).join(' · ')}</p></div>
+          </header>
+          {CHECK_FIELDS.map((f) => {
+            const c = codes[f];
+            return (
+              <div key={f} className={cx('flex min-h-[76px] items-center justify-between gap-3 border-b border-line px-5 py-3 last:border-0', open.includes(f) && 'bg-warn/[0.03]')}>
+                <div className="min-w-0"><Label>{CHECK_FIELD_LABEL[f]}</Label><Value v={oursValue(lead, f)} /></div>
+                {c === 'same' ? <SameMark /> : c === 'different' ? (
+                  <span className="shrink-0 text-xs text-fg-3">{reviewed ? 'Kept yours' : 'Yours'}</span>
+                ) : null}
+              </div>
+            );
+          })}
+        </section>
+        <section className="overflow-hidden rounded-3xl border border-info/40 bg-bg-2">
+          <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-info/12 text-info"><MapPin className="h-4 w-4" /></span>
+              <div className="min-w-0"><p className="font-medium">What Google found</p><p className="text-xs text-fg-3">{when ? `Checked ${when} · details not kept` : 'Details not kept'}</p></div>
+            </div>
+            {showButton}
+          </header>
+          {CHECK_FIELDS.map((f) => {
+            const c = codes[f];
+            return (
+              <div key={f} className={cx('flex min-h-[76px] items-center justify-between gap-3 border-b border-line px-5 py-3 last:border-0', open.includes(f) && 'bg-warn/[0.03]')}>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2"><Label>{CHECK_FIELD_LABEL[f]}</Label>{(c === 'different' || c === 'google_only') && <Badge code={c} />}</div>
+                  <p className="mt-1 text-fg-3">{c === 'same' ? oursValue(lead, f) || '—' : c === 'different' || c === 'google_only' ? 'Not kept — show Google’s details' : c === 'ours_only' ? 'Not on Google' : '—'}</p>
+                </div>
+                {c === 'same' ? <span className="shrink-0 text-xs text-fg-3">Same</span> : null}
+              </div>
+            );
+          })}
+        </section>
+      </div>
+      {gc.mapsUrl && (
+        <a href={gc.mapsUrl} target="_blank" rel="noreferrer noopener" className="inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-brand">Open in Google Maps <ExternalLink className="h-3.5 w-3.5" /></a>
+      )}
+    </div>
+  );
+}
+
 // ─── Pick a match ───────────────────────────────────────────────────────────
 
 function Pick({ lead, result, usage, onDone, onSearch }: { lead: Lead; result: CheckResult & { candidates: Offer[] }; usage?: PlacesUsage; onDone: (r: CheckResult) => void; onSearch: () => void }) {
@@ -365,6 +508,11 @@ export default function LeadCheck({ id, user }: { id: string; user: TeamUser }) 
   };
   const checkAgain = () => call.run('check', async () => done(await runCheck(id)));
   const showGoogle = () => call.run('view', async () => done(await viewCheck(id)));
+  const defaultQuery = lead ? [lead.businessName, lead.area, lead.city].filter(Boolean).join(', ') : '';
+  const searchAgain = () => call.run('check', async () => done(await runCheck(id, defaultQuery)));
+  const g = lead?.googleCheck;
+  // The 7-day rule (everyone): an edited search after "pick"/"not found" is still allowed.
+  const nextAt = g?.nextCheckAt && Date.parse(g.nextCheckAt) > Date.now() && !['pick', 'not_found', 'not_on_google'].includes(g.status) ? g.nextCheckAt : null;
 
   const body = (() => {
     if (!lead) return null;
@@ -395,33 +543,19 @@ export default function LeadCheck({ id, user }: { id: string; user: TeamUser }) 
     if (result?.google && result.fields) {
       return <Compare key={`${result.google.token}:${lead.updatedAt}`} lead={lead} result={result as CheckResult & { google: Offer; fields: NonNullable<CheckResult['fields']> }} usage={usage} onSaved={done} />;
     }
-    // Nothing fetched in this tab: Google's details need a fresh live call.
+    // Nothing fetched in this tab: the stored result, in the frames' layouts.
     const gc = lead.googleCheck;
-    const intro =
-      gc.status === 'pick'
-        ? { title: `Google found ${gc.candidates} possible matches`, text: "Google's details aren't kept, so seeing them again needs a fresh search.", button: 'Search again', fn: checkAgain, what: 'check' }
-        : gc.linked
-          ? { title: gc.status === 'matches' ? 'Matches Google' : gc.status === 'reviewed' ? 'Reviewed against Google' : 'Differences found', text: "Google's details aren't kept. Show them again with a fresh lookup.", button: "Show Google's details", fn: showGoogle, what: 'view' }
-          : { title: 'Not checked yet', text: "Search Google by this lead's name, area and city and compare the details.", button: 'Check with Google', fn: checkAgain, what: 'check' };
+    if ((gc.linked && gc.fields) || gc.status === 'pick') {
+      return <StoredView lead={lead} usage={usage} busy={call.busy} onShow={showGoogle} onSearch={searchAgain} />;
+    }
     return (
       <section className="rounded-3xl border border-line bg-bg-2 p-5 sm:p-6">
-        <p className="text-lg font-medium">{intro.title}</p>
-        <p className="mt-1 text-sm text-fg-2">{intro.text}</p>
-        {gc.fields && (
-          <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {CHECK_FIELDS.map((f) => (
-              <li key={f} className="flex items-center justify-between gap-3 rounded-2xl bg-bg-3/50 px-4 py-2.5 text-sm">
-                <span className="text-fg-2">{CHECK_FIELD_LABEL[f]}</span>
-                {gc.fields![f] === 'same' || gc.fields![f] === 'different' || gc.fields![f] === 'google_only' ? <Badge code={gc.fields![f]} /> : <span className="text-xs text-fg-3">{gc.fields![f] === 'ours_only' ? 'Only ours' : '—'}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
+        <p className="text-lg font-medium">Not checked yet</p>
+        <p className="mt-1 text-sm text-fg-2">Search Google by this lead's name, area and city and compare the details.</p>
         <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
-          <Button busy={call.busy === intro.what} disabled={Boolean(call.busy) || checksLeft(usage) <= 0} onClick={intro.fn}>{intro.button}</Button>
-          <CallNote usage={usage} />
+          <Button busy={call.busy === 'check'} disabled={Boolean(call.busy) || checksLeft(usage) <= 0 || Boolean(nextAt)} onClick={checkAgain}>Check with Google</Button>
+          <CallNote usage={usage}>{nextAt ? `You can check this again from ${day(nextAt)}` : 'Uses 1 Google call'}</CallNote>
         </div>
-        {gc.checkedAt && <p className="mt-4 text-xs text-fg-3">Last checked {formatDateTime(gc.checkedAt)}{gc.checkedByName ? ` by ${gc.checkedByName}` : ''}.</p>}
       </section>
     );
   })();
@@ -443,10 +577,10 @@ export default function LeadCheck({ id, user }: { id: string; user: TeamUser }) 
         </div>
         {canRunLeadCheck(user, lead) && (result || lead.googleCheck.status) && (
           <div className="flex shrink-0 flex-col items-start gap-1 sm:items-end">
-            <Button variant="secondary" busy={call.busy === 'check'} disabled={Boolean(call.busy) || checksLeft(usage) <= 0} onClick={checkAgain}>
+            <Button variant="secondary" busy={call.busy === 'check'} disabled={Boolean(call.busy) || checksLeft(usage) <= 0 || Boolean(nextAt)} onClick={checkAgain}>
               <RefreshCw className="h-4 w-4" /> Check again
             </Button>
-            <CallNote usage={usage} />
+            <CallNote usage={usage}>{nextAt ? `You can check this again from ${day(nextAt)}` : 'Uses 1 Google call'}</CallNote>
           </div>
         )}
       </div>
